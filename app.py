@@ -22,14 +22,14 @@ IS_VERCEL = 'VERCEL' in os.environ or 'NOW' in os.environ
 if IS_VERCEL:
     UPLOAD_FOLDER = '/tmp/static/uploads'
     STATIC_FOLDER = '/tmp/static'
-    JSON_FOLDER = '/tmp'  # <-- KEY FIX: Use /tmp for JSON files on Vercel
+    JSON_FOLDER = '/tmp'
 else:
     UPLOAD_FOLDER = 'static/uploads'
     STATIC_FOLDER = 'static'
     JSON_FOLDER = '.'
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
-MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5MB max file size
+MAX_CONTENT_LENGTH = 5 * 1024 * 1024
 
 try:
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -46,7 +46,7 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 def get_json_path(filename):
-    """Get the correct path for JSON files - /tmp on Vercel, current dir locally"""
+    """Get the correct path for JSON files"""
     return os.path.join(JSON_FOLDER, filename)
 
 # ===== SUPABASE CONFIGURATION =====
@@ -69,7 +69,7 @@ def test_supabase_connection():
         response = requests.get(
             f"{SUPABASE_URL}/rest/v1/products?select=count",
             headers=SUPABASE_HEADERS,
-            timeout=10
+            timeout=5
         )
         return response.status_code == 200
     except:
@@ -81,19 +81,88 @@ try:
         DB_TYPE = 'supabase'
         print("✅ Supabase connected!")
     else:
-        print("⚠️ Supabase connection failed - using JSON storage")
+        print("⚠️ Supabase connection failed - using JSON storage (OFFLINE MODE)")
 except Exception as e:
     print(f"⚠️ Supabase error: {e}")
-    print("📁 Using JSON storage")
+    print("📁 OFFLINE MODE - Using JSON storage")
 
-# ===== JSON FALLBACK - FIXED FOR VERCEL =====
+# ===== JSON FALLBACK - FIXED FOR VERCEL & OFFLINE =====
 def load_json(file_path):
     try:
         full_path = get_json_path(file_path)
         if os.path.exists(full_path):
             with open(full_path, 'r') as f:
                 return json.load(f)
-        # Create empty file
+        
+        # Create sample products if products.json doesn't exist
+        if file_path == 'products.json':
+            sample_products = [
+                {
+                    "id": "1",
+                    "name": "iPhone 15 Pro Max",
+                    "price": 150000,
+                    "cost_price": 120000,
+                    "image": "https://via.placeholder.com/300x300/000/fff?text=iPhone",
+                    "category": "Phones",
+                    "description": "Latest iPhone with amazing features",
+                    "rating": 4.8,
+                    "reviews": 120,
+                    "badge": "Best Seller",
+                    "stock": 50,
+                    "original_price": 165000,
+                    "specs": ["6.7\" Display", "48MP Camera", "A17 Pro Chip"]
+                },
+                {
+                    "id": "2",
+                    "name": "MacBook Pro M3",
+                    "price": 250000,
+                    "cost_price": 200000,
+                    "image": "https://via.placeholder.com/300x300/000/fff?text=MacBook",
+                    "category": "Laptops",
+                    "description": "Powerful laptop for professionals",
+                    "rating": 4.9,
+                    "reviews": 85,
+                    "badge": "New",
+                    "stock": 30,
+                    "original_price": 280000,
+                    "specs": ["14\" Display", "M3 Chip", "16GB RAM"]
+                },
+                {
+                    "id": "3",
+                    "name": "Samsung Galaxy S24",
+                    "price": 120000,
+                    "cost_price": 95000,
+                    "image": "https://via.placeholder.com/300x300/000/fff?text=Samsung",
+                    "category": "Phones",
+                    "description": "Premium Android phone",
+                    "rating": 4.7,
+                    "reviews": 95,
+                    "badge": "Trending",
+                    "stock": 40,
+                    "original_price": 135000,
+                    "specs": ["6.8\" Display", "200MP Camera", "Snapdragon 8 Gen 3"]
+                },
+                {
+                    "id": "4",
+                    "name": "AirPods Pro 2",
+                    "price": 35000,
+                    "cost_price": 25000,
+                    "image": "https://via.placeholder.com/300x300/000/fff?text=AirPods",
+                    "category": "Accessories",
+                    "description": "Premium wireless earbuds",
+                    "rating": 4.6,
+                    "reviews": 200,
+                    "badge": "Best Seller",
+                    "stock": 100,
+                    "original_price": 40000,
+                    "specs": ["Active Noise Cancellation", "Spatial Audio"]
+                }
+            ]
+            with open(full_path, 'w') as f:
+                json.dump(sample_products, f, indent=2)
+            return sample_products
+        
+        # Create empty file for others
         with open(full_path, 'w') as f:
             json.dump([], f)
         return []
@@ -112,7 +181,7 @@ def save_json(file_path, data):
         return False
 
 # ================================================================
-# ===== DATABASE FUNCTIONS - PRODUCTS =====
+# ===== DATABASE FUNCTIONS =====
 # ================================================================
 
 def load_products():
@@ -122,24 +191,23 @@ def load_products():
             response = requests.get(
                 f"{SUPABASE_URL}/rest/v1/products?select=*",
                 headers=SUPABASE_HEADERS,
-                timeout=10
+                timeout=5
             )
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list):
+                    # Save to JSON as backup
+                    save_json('products.json', data)
                     return data
                 if isinstance(data, dict) and 'items' in data:
+                    save_json('products.json', data['items'])
                     return data['items']
                 return data
         except Exception as e:
-            print(f"Error loading products: {e}")
+            print(f"Error loading products from Supabase: {e}")
     
-    data = load_json('products.json')
-    if isinstance(data, dict) and 'items' in data:
-        return data['items']
-    if isinstance(data, list):
-        return data
-    return []
+    # Fallback to JSON
+    return load_json('products.json')
 
 def load_product_by_id(product_id):
     """Load a single product by ID"""
@@ -148,7 +216,7 @@ def load_product_by_id(product_id):
             response = requests.get(
                 f"{SUPABASE_URL}/rest/v1/products?id=eq.{product_id}",
                 headers=SUPABASE_HEADERS,
-                timeout=10
+                timeout=5
             )
             if response.status_code == 200:
                 data = response.json()
@@ -169,7 +237,7 @@ def load_products_by_category(category):
             response = requests.get(
                 f"{SUPABASE_URL}/rest/v1/products?category=eq.{category}",
                 headers=SUPABASE_HEADERS,
-                timeout=10
+                timeout=5
             )
             if response.status_code == 200:
                 return response.json()
@@ -185,24 +253,21 @@ def load_bundles():
             response = requests.get(
                 f"{SUPABASE_URL}/rest/v1/bundles?select=*",
                 headers=SUPABASE_HEADERS,
-                timeout=10
+                timeout=5
             )
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list):
+                    save_json('bundles.json', data)
                     return data
                 if isinstance(data, dict) and 'items' in data:
+                    save_json('bundles.json', data['items'])
                     return data['items']
                 return data
         except Exception as e:
             print(f"Error loading bundles: {e}")
     
-    data = load_json('bundles.json')
-    if isinstance(data, dict) and 'items' in data:
-        return data['items']
-    if isinstance(data, list):
-        return data
-    return []
+    return load_json('bundles.json')
 
 def get_cart():
     """Get cart from session"""
@@ -221,7 +286,7 @@ def get_cart():
     return cart
 
 def save_product_to_db(product_data):
-    """Save product to Supabase or JSON - SINGLE SAVE"""
+    """Save product to Supabase or JSON"""
     product_copy = dict(product_data)
     
     if DB_CONNECTED:
@@ -229,24 +294,25 @@ def save_product_to_db(product_data):
             check = requests.get(
                 f"{SUPABASE_URL}/rest/v1/products?id=eq.{product_copy.get('id')}",
                 headers=SUPABASE_HEADERS,
-                timeout=10
+                timeout=5
             )
             if check.status_code == 200 and check.json():
                 response = requests.patch(
                     f"{SUPABASE_URL}/rest/v1/products?id=eq.{product_copy.get('id')}",
                     headers=SUPABASE_HEADERS,
                     json=product_copy,
-                    timeout=10
+                    timeout=5
                 )
             else:
                 response = requests.post(
                     f"{SUPABASE_URL}/rest/v1/products",
                     headers=SUPABASE_HEADERS,
                     json=product_copy,
-                    timeout=10
+                    timeout=5
                 )
             print(f"✅ Product saved to Supabase: {product_copy.get('id')}")
             
+            # Also save to JSON as backup
             products = load_products()
             found = False
             for p in products:
@@ -296,16 +362,14 @@ def update_product_stock(product_id, quantity):
 # ================================================================
 
 def load_orders():
-    """
-    Load all orders, merging Supabase and the local JSON backup.
-    """
+    """Load all orders from Supabase or JSON"""
     supabase_orders = []
     if DB_CONNECTED:
         try:
             response = requests.get(
                 f"{SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc",
                 headers=SUPABASE_HEADERS,
-                timeout=10
+                timeout=5
             )
             if response.status_code == 200:
                 data = response.json()
@@ -319,6 +383,7 @@ def load_orders():
     if not isinstance(json_orders, list):
         json_orders = []
 
+    # Merge orders
     merged = {}
     for order in json_orders:
         oid = order.get('order_id')
@@ -334,9 +399,8 @@ def load_orders():
     return all_orders
 
 def save_order_to_db(order_data):
-    """
-    Save order to Supabase (if connected) AND always to the local JSON backup.
-    """
+    """Save order to Supabase and JSON backup"""
+    # Always save to JSON first (works offline)
     json_saved = save_order_to_json(order_data)
 
     if DB_CONNECTED:
@@ -345,7 +409,7 @@ def save_order_to_db(order_data):
                 f"{SUPABASE_URL}/rest/v1/orders",
                 headers=SUPABASE_HEADERS,
                 json=order_data,
-                timeout=10
+                timeout=5
             )
             print(f"Supabase response status: {response.status_code}")
             
@@ -353,7 +417,7 @@ def save_order_to_db(order_data):
                 print(f"✅ Order saved to Supabase: {order_data.get('order_id')}")
                 return True
             else:
-                print(f"❌ Supabase save failed ({response.status_code}), JSON backup already saved")
+                print(f"❌ Supabase save failed ({response.status_code}), JSON backup saved")
                 return json_saved
         except Exception as e:
             print(f"❌ Error saving order to Supabase: {e}")
@@ -362,17 +426,17 @@ def save_order_to_db(order_data):
         return json_saved
 
 def save_order_to_json(order_data):
-    """Save order to JSON file (used as backup on every order)"""
+    """Save order to JSON file - WORKS OFFLINE"""
     try:
         orders = load_json('orders.json')
         if not isinstance(orders, list):
             orders = []
         
+        # Remove duplicate if exists
         orders = [o for o in orders if o.get('order_id') != order_data.get('order_id')]
         orders.insert(0, order_data)
         
         save_json('orders.json', orders)
-        
         print(f"✅ Order saved to JSON: {order_data.get('order_id')}")
         return True
     except Exception as e:
@@ -426,7 +490,7 @@ def get_sales_analytics():
         product_lookup = {}
         for p in products:
             if p and p.get('id'):
-                product_lookup[p.get('id')] = p
+                product_lookup[str(p.get('id'))] = p
         
         total_revenue = 0
         total_cost = 0
@@ -483,7 +547,7 @@ def get_sales_analytics():
             
             items = order.get('items', [])
             for item in items:
-                product_id = item.get('product_id')
+                product_id = str(item.get('product_id', ''))
                 quantity = item.get('quantity', 1)
                 price = item.get('price', 0)
                 item_total = item.get('total', price * quantity)
@@ -516,10 +580,6 @@ def get_sales_analytics():
                 product_sales[product_name]['cost'] += item_cost
                 product_sales[product_name]['profit'] += (item_total - item_cost)
         
-        sorted_months = sorted(monthly_data.keys())
-        sorted_products = sorted(product_sales.items(), key=lambda x: x[1]['profit'], reverse=True)
-        sorted_customers = sorted(customer_data.items(), key=lambda x: x[1]['orders'], reverse=True)
-        
         return {
             'total_revenue': total_revenue,
             'total_cost': total_cost,
@@ -528,10 +588,11 @@ def get_sales_analytics():
             'total_items_sold': total_items_sold,
             'pos_orders_count': pos_orders_count,
             'web_orders_count': web_orders_count,
+            'total_customers': len(customer_data),
             'monthly_data': monthly_data,
-            'product_sales': dict(sorted_products[:10]),
-            'all_product_sales': dict(sorted_products),
-            'customer_data': dict(sorted_customers)
+            'product_sales': dict(sorted(product_sales.items(), key=lambda x: x[1]['profit'], reverse=True)[:10]),
+            'all_product_sales': product_sales,
+            'customer_data': customer_data
         }
     except Exception as e:
         print(f"❌ Error in get_sales_analytics: {e}")
@@ -544,6 +605,7 @@ def get_sales_analytics():
             'total_items_sold': 0,
             'pos_orders_count': 0,
             'web_orders_count': 0,
+            'total_customers': 0,
             'monthly_data': {},
             'product_sales': {},
             'all_product_sales': {},
@@ -562,12 +624,12 @@ def index():
     products_dict = {}
     for p in products_list:
         if p and 'id' in p:
-            products_dict[p['id']] = p
+            products_dict[str(p['id'])] = p
     
     bundles_dict = {}
     for b in bundles_list:
         if b and 'id' in b:
-            bundles_dict[b['id']] = b
+            bundles_dict[str(b['id'])] = b
     
     best_sellers = [p for p in products_list if p.get('badge') == 'Best Seller']
     new_arrivals = [p for p in products_list if p.get('badge') == 'New']
@@ -601,7 +663,7 @@ def category_page(category_name):
     products_dict = {}
     for p in products:
         if p and 'id' in p:
-            products_dict[p['id']] = p
+            products_dict[str(p['id'])] = p
     return render_template('category.html',
         products=products_dict,
         category_name=category_name,
@@ -616,12 +678,12 @@ def product_detail(product_id):
         return redirect(url_for('index'))
     
     related = [p for p in load_products_by_category(product.get('category')) 
-               if p.get('id') != product_id][:4]
+               if str(p.get('id')) != product_id][:4]
     
     related_dict = {}
     for r in related:
         if r and 'id' in r:
-            related_dict[r['id']] = r
+            related_dict[str(r['id'])] = r
     
     return render_template('product.html',
         product=product,
@@ -1087,7 +1149,8 @@ def api_status():
         'bundles': len(load_bundles()),
         'orders': len(load_orders()),
         'timestamp': datetime.utcnow().isoformat(),
-        'environment': 'vercel' if IS_VERCEL else 'local'
+        'environment': 'vercel' if IS_VERCEL else 'local',
+        'mode': 'online' if DB_CONNECTED else 'offline'
     })
 
 @app.route('/api/products')
@@ -1221,7 +1284,9 @@ def admin_dashboard():
             'web_orders': web_count,
             'total_revenue': analytics.get('total_revenue', 0),
             'total_profit': analytics.get('total_profit', 0),
-            'total_items_sold': analytics.get('total_items_sold', 0)
+            'total_items_sold': analytics.get('total_items_sold', 0),
+            'total_customers': len(customers),
+            'db_mode': 'online' if DB_CONNECTED else 'offline'
         }
         
         return render_template('admin.html',
@@ -1231,7 +1296,8 @@ def admin_dashboard():
             customers=customers,
             stats=stats,
             pos_count=pos_count,
-            analytics=analytics
+            analytics=analytics,
+            DB_CONNECTED=DB_CONNECTED
         )
         
     except Exception as e:
@@ -1256,8 +1322,11 @@ def admin_dashboard():
                 'web_orders': 0,
                 'total_revenue': 0,
                 'total_profit': 0,
-                'total_items_sold': 0
-            }
+                'total_items_sold': 0,
+                'total_customers': 0,
+                'db_mode': 'offline'
+            },
+            DB_CONNECTED=DB_CONNECTED
         )
 
 @app.route('/admin/pos')
@@ -1291,14 +1360,13 @@ def admin_pos():
     
     return render_template('pos.html',
         products=products,
-        customers=customers
+        customers=customers,
+        DB_CONNECTED=DB_CONNECTED
     )
 
 @app.route('/admin/pos/place-order', methods=['POST'])
 def admin_pos_place_order():
-    """
-    Place order from POS system.
-    """
+    """Place order from POS system - WORKS OFFLINE"""
     if not session.get('admin_logged_in'):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 401
     
@@ -1354,9 +1422,11 @@ def admin_pos_place_order():
             }
         }
         
+        # This saves to JSON first (offline) then tries Supabase (online)
         if not save_order_to_db(order_data):
             return jsonify({'success': False, 'message': 'Failed to save order'}), 500
 
+        # Update stock for every product sold
         for updated_product in products_to_update:
             save_product_to_db(updated_product)
             print(f"✅ Stock updated: {updated_product.get('name')} → {updated_product.get('stock')}")
@@ -1415,7 +1485,7 @@ def admin_api_revenue():
 
 @app.route('/admin/products', methods=['POST'])
 def admin_products():
-    """Handle product creation/update via AJAX - returns JSON"""
+    """Handle product creation/update via AJAX"""
     if not session.get('admin_logged_in'):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 401
     
@@ -1454,19 +1524,19 @@ def admin_delete_product(product_id):
             response = requests.delete(
                 f"{SUPABASE_URL}/rest/v1/products?id=eq.{product_id}",
                 headers=SUPABASE_HEADERS,
-                timeout=10
+                timeout=5
             )
             if response.status_code in [200, 204]:
                 return jsonify({'success': True})
+        
+        # Always delete from JSON
+        products = load_products()
+        if isinstance(products, list):
+            products = [p for p in products if str(p.get('id')) != str(product_id)]
         else:
-            products = load_products()
-            if isinstance(products, list):
-                products = [p for p in products if str(p.get('id')) != str(product_id)]
-            else:
-                products = []
-            save_json('products.json', products)
-            return jsonify({'success': True})
-        return jsonify({'success': False, 'message': 'Failed to delete'})
+            products = []
+        save_json('products.json', products)
+        return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -1481,32 +1551,36 @@ def admin_update_order_status(order_id):
             return jsonify({'success': False, 'message': 'Status required'}), 400
         
         if DB_CONNECTED:
-            response = requests.patch(
-                f"{SUPABASE_URL}/rest/v1/orders?order_id=eq.{order_id}",
-                headers=SUPABASE_HEADERS,
-                json={'status': new_status},
-                timeout=10
-            )
-            if response.status_code in [200, 204]:
-                orders = load_orders()
-                if isinstance(orders, list):
-                    for order in orders:
-                        if order.get('order_id') == order_id:
-                            order['status'] = new_status
-                            break
-                    save_json('orders.json', orders)
-                return jsonify({'success': True})
-        else:
-            orders = load_orders()
-            if isinstance(orders, list):
-                for order in orders:
-                    if order.get('order_id') == order_id:
-                        order['status'] = new_status
-                        break
-            save_json('orders.json', orders)
-            return jsonify({'success': True})
+            try:
+                response = requests.patch(
+                    f"{SUPABASE_URL}/rest/v1/orders?order_id=eq.{order_id}",
+                    headers=SUPABASE_HEADERS,
+                    json={'status': new_status},
+                    timeout=5
+                )
+                if response.status_code in [200, 204]:
+                    # Update JSON too
+                    orders = load_orders()
+                    if isinstance(orders, list):
+                        for order in orders:
+                            if order.get('order_id') == order_id:
+                                order['status'] = new_status
+                                break
+                        save_json('orders.json', orders)
+                    return jsonify({'success': True})
+            except:
+                pass
         
-        return jsonify({'success': False, 'message': 'Failed to update status'})
+        # Always update JSON
+        orders = load_orders()
+        if isinstance(orders, list):
+            for order in orders:
+                if order.get('order_id') == order_id:
+                    order['status'] = new_status
+                    break
+        save_json('orders.json', orders)
+        return jsonify({'success': True})
+        
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -1533,6 +1607,9 @@ def debug():
         'json_folder': JSON_FOLDER,
         'files_in_json_folder': os.listdir(JSON_FOLDER) if os.path.exists(JSON_FOLDER) else [],
         'orders_json_exists': os.path.exists(get_json_path('orders.json')),
+        'products_json_exists': os.path.exists(get_json_path('products.json')),
+        'db_connected': DB_CONNECTED,
+        'mode': 'online' if DB_CONNECTED else 'offline',
         'cwd': os.getcwd()
     })
 
@@ -1545,7 +1622,7 @@ if __name__ == '__main__':
     print("📱 PRICE POINT - Premium Electronics Shop")
     print("="*60)
     print(f"📁 Database: {DB_TYPE}")
-    print(f"🔗 Connected: {'✅ YES' if DB_CONNECTED else '❌ NO'}")
+    print(f"🔗 Connected: {'✅ YES' if DB_CONNECTED else '❌ NO (OFFLINE MODE)'}")
     print(f"🌍 Environment: {'Vercel' if IS_VERCEL else 'Local'}")
     print(f"📁 JSON Folder: {JSON_FOLDER}")
     print("💰 Prices in Kenyan Shillings (KES)")
