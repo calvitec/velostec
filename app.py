@@ -1871,7 +1871,183 @@ def debug():
 # ================================================================
 # ===== RUN APP =====
 # ================================================================
-
+@app.route('/sync-local-to-supabase')
+def sync_local_to_supabase():
+    """Sync local JSON data to Supabase"""
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if not DB_CONNECTED:
+        return jsonify({'error': 'Supabase not connected. Please check your connection.'}), 400
+    
+    try:
+        import json as json_module
+        results = {
+            'products_synced': 0,
+            'products_failed': 0,
+            'orders_synced': 0,
+            'orders_failed': 0
+        }
+        
+        # ===== SYNC PRODUCTS =====
+        products = load_json('products.json')
+        print(f"📦 Found {len(products)} products to sync")
+        
+        for product in products:
+            try:
+                # Clean product data
+                clean_product = {
+                    'id': str(product.get('id')),
+                    'name': product.get('name', ''),
+                    'price': float(product.get('price', 0)),
+                    'cost_price': float(product.get('cost_price', 0)),
+                    'image': product.get('image', ''),
+                    'category': product.get('category', ''),
+                    'description': product.get('description', ''),
+                    'rating': float(product.get('rating', 4.0)),
+                    'reviews': int(product.get('reviews', 0)),
+                    'badge': product.get('badge', ''),
+                    'stock': int(product.get('stock', 0)),
+                    'original_price': float(product.get('original_price', 0)) if product.get('original_price') else None,
+                    'specs': product.get('specs', [])
+                }
+                
+                # Check if exists
+                check = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/products?id=eq.{clean_product['id']}",
+                    headers=SUPABASE_HEADERS,
+                    timeout=5
+                )
+                
+                if check.status_code == 200 and check.json():
+                    # Update
+                    response = requests.patch(
+                        f"{SUPABASE_URL}/rest/v1/products?id=eq.{clean_product['id']}",
+                        headers=SUPABASE_HEADERS,
+                        json=clean_product,
+                        timeout=5
+                    )
+                    if response.status_code in [200, 204]:
+                        results['products_synced'] += 1
+                        print(f"✅ Updated product: {clean_product['name']}")
+                    else:
+                        results['products_failed'] += 1
+                        print(f"❌ Failed to update product: {clean_product['name']}")
+                else:
+                    # Insert
+                    response = requests.post(
+                        f"{SUPABASE_URL}/rest/v1/products",
+                        headers=SUPABASE_HEADERS,
+                        json=clean_product,
+                        timeout=5
+                    )
+                    if response.status_code in [200, 201]:
+                        results['products_synced'] += 1
+                        print(f"✅ Inserted product: {clean_product['name']}")
+                    else:
+                        results['products_failed'] += 1
+                        print(f"❌ Failed to insert product: {clean_product['name']}")
+            except Exception as e:
+                results['products_failed'] += 1
+                print(f"❌ Error syncing product {product.get('name')}: {e}")
+        
+        # ===== SYNC ORDERS =====
+        orders = load_json('orders.json')
+        print(f"📦 Found {len(orders)} orders to sync")
+        
+        for order in orders:
+            try:
+                # Format for Supabase
+                supabase_order = {
+                    'order_id': str(order.get('order_id')),
+                    'items': json_module.dumps(order.get('items', [])),
+                    'subtotal': float(order.get('subtotal', 0)),
+                    'shipping': float(order.get('shipping', 0)),
+                    'total': float(order.get('total', 0)),
+                    'status': order.get('status', 'pending'),
+                    'source': order.get('source', 'web'),
+                    'created_at': order.get('created_at', datetime.utcnow().isoformat()),
+                    'customer': json_module.dumps(order.get('customer', {}))
+                }
+                
+                # Check if exists
+                check = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/orders?order_id=eq.{supabase_order['order_id']}",
+                    headers=SUPABASE_HEADERS,
+                    timeout=5
+                )
+                
+                if check.status_code == 200 and check.json():
+                    # Update
+                    response = requests.patch(
+                        f"{SUPABASE_URL}/rest/v1/orders?order_id=eq.{supabase_order['order_id']}",
+                        headers=SUPABASE_HEADERS,
+                        json=supabase_order,
+                        timeout=5
+                    )
+                    if response.status_code in [200, 204]:
+                        results['orders_synced'] += 1
+                        print(f"✅ Updated order: {supabase_order['order_id']}")
+                    else:
+                        results['orders_failed'] += 1
+                        print(f"❌ Failed to update order: {supabase_order['order_id']}")
+                else:
+                    # Insert
+                    response = requests.post(
+                        f"{SUPABASE_URL}/rest/v1/orders",
+                        headers=SUPABASE_HEADERS,
+                        json=supabase_order,
+                        timeout=5
+                    )
+                    if response.status_code in [200, 201]:
+                        results['orders_synced'] += 1
+                        print(f"✅ Inserted order: {supabase_order['order_id']}")
+                    else:
+                        results['orders_failed'] += 1
+                        print(f"❌ Failed to insert order: {supabase_order['order_id']} - {response.text}")
+            except Exception as e:
+                results['orders_failed'] += 1
+                print(f"❌ Error syncing order {order.get('order_id')}: {e}")
+        
+        # ===== GET UPDATED STATS =====
+        # Get orders from Supabase to count customers
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/orders?select=*",
+            headers=SUPABASE_HEADERS,
+            timeout=10
+        )
+        
+        customers = set()
+        if response.status_code == 200:
+            supabase_orders = response.json()
+            for order in supabase_orders:
+                customer = order.get('customer', {})
+                if isinstance(customer, str):
+                    try:
+                        customer = json.loads(customer)
+                    except:
+                        customer = {}
+                if customer.get('name'):
+                    customers.add(customer['name'])
+        
+        return jsonify({
+            'success': True,
+            'message': 'Sync completed!',
+            'results': results,
+            'total_customers': len(customers),
+            'total_orders': len(supabase_orders) if response.status_code == 200 else 0,
+            'details': {
+                'products_synced': results['products_synced'],
+                'orders_synced': results['orders_synced'],
+                'products_failed': results['products_failed'],
+                'orders_failed': results['orders_failed']
+            }
+        })
+        
+    except Exception as e:
+        print(f"❌ Sync error: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 if __name__ == '__main__':
     print("\n" + "="*60)
     print("📱 PRICE POINT - Premium Electronics Shop")
