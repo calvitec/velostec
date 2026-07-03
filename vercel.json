@@ -3,7 +3,10 @@
     "builds": [
         {
             "src": "app.py",
-            "use": "@vercel/python"
+            "use": "@vercel/python",
+            "config": {
+                "maxLambdaSize": "15mb"
+            }
         }
     ],
     "routes": [
@@ -11,5 +14,9 @@
             "src": "/(.*)",
             "dest": "app.py"
         }
-    ]
+    ],
+    "env": {
+        "SUPABASE_URL": "https://hzqrdwerkgfmfaufabjr.supabase.co",
+        "SUPABASE_KEY": "sb_publishable_tnBOmCO7EFfIoXfNjEH_Tg_D7WX-zld"
+    }
 }
