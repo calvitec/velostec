@@ -334,28 +334,6 @@
         }
         .toast.hidden { display: none; }
 
-        /* ===== EDIT PRODUCT MODAL ===== */
-        #editProductModal .modal-content {
-            max-width: 700px;
-        }
-        #editProductModal .form-input:disabled {
-            background: #f1f5f9;
-            cursor: not-allowed;
-            opacity: 0.7;
-        }
-        #editProductModal .form-input {
-            font-size: 0.85rem;
-        }
-        @media (max-width: 640px) {
-            #editProductModal .modal-content {
-                padding: 16px;
-                margin: 10px;
-            }
-            #editProductModal .grid {
-                gap: 12px;
-            }
-        }
-
         /* ===== MODAL ===== */
         .modal-overlay {
             position: fixed;
@@ -428,6 +406,36 @@
             animation: slideUp 0.3s ease;
         }
         .required { color: #ef4444; }
+        
+        /* Product image fallback */
+        .product-pos-card img {
+            background: #f8fafc;
+        }
+        .product-pos-card img[src=""] {
+            display: none;
+        }
+
+        /* Fix for edit product modal */
+        #editProductModal .modal-content {
+            max-width: 700px;
+        }
+        #editProductModal .form-input:disabled {
+            background: #f1f5f9;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        #editProductModal .form-input {
+            font-size: 0.85rem;
+        }
+        @media (max-width: 640px) {
+            #editProductModal .modal-content {
+                padding: 16px;
+                margin: 10px;
+            }
+            #editProductModal .grid {
+                gap: 12px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -514,7 +522,6 @@
                     <i class="fas fa-users"></i><span>Customers</span>
                     <span class="badge-count" id="customerCount">0</span>
                 </a>
-                <!-- POS Link -->
                 <a href="#pos" class="sidebar-item" onclick="showSection('pos')">
                     <i class="fas fa-cash-register"></i><span>POS</span>
                     <span class="badge-dot"></span>
@@ -526,7 +533,343 @@
 
             <!-- Content -->
             <div>
-                {% block content %}{% endblock %}
+                <!-- ===== DASHBOARD SECTION ===== -->
+                <div id="dashboard-section" class="section">
+                    <div class="flex items-center justify-between mb-6">
+                        <div>
+                            <h2 class="text-2xl font-extrabold text-[#0f172a] tracking-tight">
+                                <i class="fas fa-th-large text-blue-500 mr-2"></i>Dashboard
+                            </h2>
+                            <p class="text-gray-400 text-sm mt-0.5">Real-time store overview</p>
+                        </div>
+                        <span class="text-xs text-gray-400 bg-white px-4 py-2 rounded-full border border-gray-100">
+                            <i class="fas fa-sync-alt mr-1"></i> Updated now
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="stat-card animate-slide" style="animation-delay:0.05s">
+                            <div class="flex items-center justify-between">
+                                <div class="stat-icon bg-blue-50 text-blue-500"><i class="fas fa-box"></i></div>
+                                <span class="stat-change"><i class="fas fa-arrow-up"></i> 12%</span>
+                            </div>
+                            <p class="stat-value text-blue-600">{{ stats.total_products|default(0) }}</p>
+                            <p class="stat-label">Total Products</p>
+                        </div>
+                        <div class="stat-card animate-slide" style="animation-delay:0.1s">
+                            <div class="flex items-center justify-between">
+                                <div class="stat-icon bg-green-50 text-green-500"><i class="fas fa-shopping-cart"></i></div>
+                                <span class="stat-change"><i class="fas fa-arrow-up"></i> 8%</span>
+                            </div>
+                            <p class="stat-value text-green-600">{{ stats.total_orders|default(0) }}</p>
+                            <p class="stat-label">Total Orders</p>
+                        </div>
+                        <div class="stat-card animate-slide" style="animation-delay:0.15s">
+                            <div class="flex items-center justify-between">
+                                <div class="stat-icon bg-purple-50 text-purple-500"><i class="fas fa-coin"></i></div>
+                                <span class="stat-change"><i class="fas fa-arrow-up"></i> 15%</span>
+                            </div>
+                            <p class="stat-value text-purple-600" id="dashRevenue">KSh {{ stats.total_revenue|default(0)|int|format_number }}</p>
+                            <p class="stat-label">Total Revenue</p>
+                        </div>
+                        <div class="stat-card animate-slide" style="animation-delay:0.2s">
+                            <div class="flex items-center justify-between">
+                                <div class="stat-icon bg-amber-50 text-amber-500"><i class="fas fa-users"></i></div>
+                                <span class="stat-change"><i class="fas fa-arrow-up"></i> 5%</span>
+                            </div>
+                            <p class="stat-value text-amber-600">{{ stats.total_customers|default(0) }}</p>
+                            <p class="stat-label">Customers</p>
+                        </div>
+                    </div>
+
+                    <div class="grid lg:grid-cols-2 gap-6">
+                        <div class="glass-card animate-slide" style="animation-delay:0.1s">
+                            <h3 class="font-bold text-[#0f172a] mb-3 flex items-center gap-2">
+                                <i class="fas fa-chart-line text-blue-500"></i> Revenue Overview
+                            </h3>
+                            <canvas id="revenueChart" height="200"></canvas>
+                        </div>
+                        <div class="glass-card animate-slide" style="animation-delay:0.15s">
+                            <h3 class="font-bold text-[#0f172a] mb-3 flex items-center gap-2">
+                                <i class="fas fa-tag text-green-500"></i> Top Products
+                            </h3>
+                            <div id="topProducts" class="space-y-2 max-h-60 overflow-y-auto">
+                                <p class="text-gray-400 text-sm">Loading...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== ANALYTICS SECTION ===== -->
+                <div id="analytics-section" class="section hidden">
+                    <h2 class="text-2xl font-extrabold text-[#0f172a] tracking-tight mb-2">
+                        <i class="fas fa-chart-pie text-purple-500 mr-2"></i>Analytics
+                    </h2>
+                    <p class="text-gray-400 text-sm mb-6">Detailed sales and profit analysis</p>
+
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div class="stat-card">
+                            <p class="stat-label">Revenue</p>
+                            <p class="stat-value text-green-600" id="totalRevenue">KSh 0</p>
+                        </div>
+                        <div class="stat-card">
+                            <p class="stat-label">Profit</p>
+                            <p class="stat-value text-blue-600" id="totalProfit">KSh 0</p>
+                        </div>
+                        <div class="stat-card">
+                            <p class="stat-label">Orders</p>
+                            <p class="stat-value text-purple-600" id="totalOrders">0</p>
+                        </div>
+                        <div class="stat-card">
+                            <p class="stat-label">Profit Margin</p>
+                            <p class="stat-value text-amber-600" id="profitMargin">0%</p>
+                        </div>
+                    </div>
+
+                    <div class="glass-card mb-6">
+                        <h3 class="font-bold text-[#0f172a] mb-3 flex items-center gap-2">
+                            <i class="fas fa-calendar text-blue-500"></i> Monthly Performance
+                        </h3>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr><th>Month</th><th class="text-right">Orders</th><th class="text-right">Items</th><th class="text-right">Revenue</th><th class="text-right">Cost</th><th class="text-right">Profit</th><th class="text-right">Margin</th></tr>
+                                </thead>
+                                <tbody id="monthlyTable">
+                                    <tr><td colspan="7" class="text-center py-8 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="glass-card">
+                        <h3 class="font-bold text-[#0f172a] mb-3 flex items-center gap-2">
+                            <i class="fas fa-cube text-purple-500"></i> Product Sales
+                        </h3>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr><th>Product</th><th class="text-right">Qty</th><th class="text-right">Revenue</th><th class="text-right">Cost</th><th class="text-right">Profit</th><th class="text-right">Margin</th></tr>
+                                </thead>
+                                <tbody id="productTable">
+                                    <tr><td colspan="6" class="text-center py-8 text-gray-400"><i class="fas fa-spinner fa-spin mr-2"></i>Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== PRODUCTS SECTION ===== -->
+                <div id="products-section" class="section hidden">
+                    <h2 class="text-2xl font-extrabold text-[#0f172a] tracking-tight mb-2">
+                        <i class="fas fa-box text-blue-500 mr-2"></i>Products
+                    </h2>
+                    <p class="text-gray-400 text-sm mb-6">Manage your product catalog</p>
+
+                    <div class="glass-card">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Image</th>
+                                        <th>Name</th>
+                                        <th>Price</th>
+                                        <th>Stock</th>
+                                        <th>Category</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="productsTableBody">
+                                    {% for product in products %}
+                                    <tr class="product-row">
+                                        <td><img src="{{ product.image|default('') }}" class="w-12 h-12 rounded-lg object-cover bg-gray-50" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2248%22%3E%3Crect width=%2248%22 height=%2248%22 fill=%22%23f1f5f9%22/%3E%3Ctext x=%2224%22 y=%2230%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2212%22 fill=%22%2394a3b8%22%3E📦%3C/text%3E%3C/svg%3E'"></td>
+                                        <td class="font-semibold text-[#0f172a]">{{ product.name|default('Product') }}</td>
+                                        <td class="text-green-600 font-bold">KSh {{ product.price|default(0)|int|format_number }}</td>
+                                        <td><span class="badge {{ 'badge-danger' if product.stock|default(0) < 5 else 'badge-success' }}">{{ product.stock|default(0) }}</span></td>
+                                        <td>{{ product.category|default('Uncategorized') }}</td>
+                                        <td>
+                                            <button onclick="editProduct('{{ product.id }}')" class="btn-outline text-xs px-2 py-1">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                            <button onclick="deleteProduct('{{ product.id }}')" class="btn-danger text-xs px-2 py-1">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== ADD PRODUCT SECTION ===== -->
+                <div id="add-product-section" class="section hidden">
+                    <h2 class="text-2xl font-extrabold text-[#0f172a] tracking-tight mb-2">
+                        <i class="fas fa-plus-circle text-green-500 mr-2"></i>Add Product
+                    </h2>
+                    <p class="text-gray-400 text-sm mb-6">Add a new product to your store</p>
+
+                    <div class="glass-card">
+                        <form onsubmit="saveProduct(event)">
+                            <input type="hidden" id="prodId" />
+                            <div class="grid md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="form-label"><i class="fas fa-heading"></i> Product Name</label>
+                                    <input type="text" id="prodName" class="form-input" placeholder="iPhone 15 Pro Max" required>
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-folder"></i> Category</label>
+                                    <select id="prodCategory" class="form-input" required>
+                                        <option value="Phones">📱 Phones</option>
+                                        <option value="Laptops">💻 Laptops</option>
+                                        <option value="Accessories">🎧 Accessories</option>
+                                        <option value="Wearables">⌚ Wearables</option>
+                                        <option value="Audio">🎵 Audio</option>
+                                        <option value="Televisions">📺 Televisions</option>
+                                        <option value="Gaming">🎮 Gaming</option>
+                                        <option value="Tablets">📱 Tablets</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-coin"></i> Selling Price (KES)</label>
+                                    <input type="number" id="prodPrice" class="form-input" placeholder="245000" required>
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-shopping-cart"></i> Cost Price (KES)</label>
+                                    <input type="number" id="prodCost" class="form-input" placeholder="200000" required>
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-tag"></i> Original Price (KES)</label>
+                                    <input type="number" id="prodOriginal" class="form-input" placeholder="265000">
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-boxes"></i> Stock</label>
+                                    <input type="number" id="prodStock" class="form-input" placeholder="25" required>
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-star"></i> Rating</label>
+                                    <input type="number" id="prodRating" class="form-input" placeholder="4.5" step="0.1">
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-medal"></i> Badge</label>
+                                    <select id="prodBadge" class="form-input">
+                                        <option value="">None</option>
+                                        <option value="Best Seller">⭐ Best Seller</option>
+                                        <option value="New">🌟 New</option>
+                                        <option value="Trending">🔥 Trending</option>
+                                    </select>
+                                </div>
+                                <div class="md:col-span-2">
+                                    <label class="form-label"><i class="fas fa-image"></i> Image URL</label>
+                                    <input type="url" id="prodImage" class="form-input" placeholder="https://images.unsplash.com/photo-..." required>
+                                </div>
+                                <div class="md:col-span-2">
+                                    <label class="form-label"><i class="fas fa-align-left"></i> Description</label>
+                                    <textarea id="prodDesc" class="form-input" rows="2" placeholder="Product description..."></textarea>
+                                </div>
+                                <div class="md:col-span-2">
+                                    <label class="form-label"><i class="fas fa-list"></i> Specifications (comma separated)</label>
+                                    <input type="text" id="prodSpecs" class="form-input" placeholder="e.g. 256GB Storage, 8GB RAM, 48MP Camera">
+                                </div>
+                            </div>
+                            <div class="flex gap-3 mt-4 pt-4 border-t border-gray-100">
+                                <button type="submit" class="btn-gradient" id="saveBtn">
+                                    <i class="fas fa-save"></i> Save Product
+                                </button>
+                                <button type="reset" class="btn-outline">
+                                    <i class="fas fa-undo"></i> Reset
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- ===== ORDERS SECTION ===== -->
+                <div id="orders-section" class="section hidden">
+                    <h2 class="text-2xl font-extrabold text-[#0f172a] tracking-tight mb-2">
+                        <i class="fas fa-shopping-cart text-orange-500 mr-2"></i>Orders
+                    </h2>
+                    <p class="text-gray-400 text-sm mb-6">Manage customer orders</p>
+
+                    <div class="glass-card">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Order ID</th>
+                                        <th>Customer</th>
+                                        <th>Items</th>
+                                        <th>Total</th>
+                                        <th>Status</th>
+                                        <th>Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for order in orders %}
+                                    <tr>
+                                        <td class="font-mono text-sm">{{ order.order_id|default('N/A') }}</td>
+                                        <td>{{ order.customer.name|default('Walk-in') if order.customer else 'Walk-in' }}</td>
+                                        <td>{{ order.items|length|default(0) if order.items else 0 }}</td>
+                                        <td class="text-green-600 font-bold">KSh {{ order.total|default(0)|int|format_number }}</td>
+                                        <td>
+                                            <select onchange="updateOrderStatus('{{ order.order_id }}', this.value)" class="text-xs border rounded px-2 py-1">
+                                                <option value="pending" {{ 'selected' if order.status == 'pending' }}>🟡 Pending</option>
+                                                <option value="confirmed" {{ 'selected' if order.status == 'confirmed' }}>🔵 Confirmed</option>
+                                                <option value="shipped" {{ 'selected' if order.status == 'shipped' }}>🟣 Shipped</option>
+                                                <option value="delivered" {{ 'selected' if order.status == 'delivered' }}>🟢 Delivered</option>
+                                                <option value="cancelled" {{ 'selected' if order.status == 'cancelled' }}>🔴 Cancelled</option>
+                                            </select>
+                                        </td>
+                                        <td>{{ order.created_at[:10]|default('N/A') if order.created_at else 'N/A' }}</td>
+                                        <td>
+                                            <button onclick="viewOrder('{{ order.order_id }}')" class="btn-outline text-xs px-2 py-1">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== CUSTOMERS SECTION ===== -->
+                <div id="customers-section" class="section hidden">
+                    <h2 class="text-2xl font-extrabold text-[#0f172a] tracking-tight mb-2">
+                        <i class="fas fa-users text-amber-500 mr-2"></i>Customers
+                    </h2>
+                    <p class="text-gray-400 text-sm mb-6">Customer management</p>
+
+                    <div class="glass-card">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Email</th>
+                                        <th>Phone</th>
+                                        <th class="text-right">Orders</th>
+                                        <th class="text-right">Total Spent</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for customer in customers %}
+                                    <tr>
+                                        <td class="font-semibold text-[#0f172a]">{{ customer.name|default('Unknown') }}</td>
+                                        <td>{{ customer.email|default('N/A') }}</td>
+                                        <td>{{ customer.phone|default('N/A') }}</td>
+                                        <td class="text-right">{{ customer.orders|default(0) }}</td>
+                                        <td class="text-right text-green-600 font-bold">KSh {{ customer.total_spent|default(0)|int|format_number }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- ===== POS SECTION ===== -->
                 <div id="pos-section" class="section hidden">
@@ -553,7 +896,7 @@
                             <div class="mb-4">
                                 <div class="relative">
                                     <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"></i>
-                                    <input type="text" id="posSearch" placeholder="Search products by name or ID..." 
+                                    <input type="text" id="posSearch" placeholder="Search products by name..." 
                                            class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 focus:border-green-500 focus:ring-4 focus:ring-green-100 transition outline-none text-sm"
                                            oninput="filterPOSProducts(this.value)" />
                                 </div>
@@ -564,16 +907,20 @@
                                 <div class="product-pos-card bg-white rounded-xl border border-gray-200 p-3 text-center hover:shadow-lg hover:border-green-500 transition-all cursor-pointer group"
                                      data-id="{{ product.id }}"
                                      data-name="{{ product.name }}"
-                                     data-price="{{ product.price }}"
-                                     data-stock="{{ product.stock }}"
-                                     data-image="{{ product.image }}"
+                                     data-price="{{ product.price|default(0) }}"
+                                     data-stock="{{ product.stock|default(0) }}"
+                                     data-image="{{ product.image|default('') }}"
                                      onclick="addToPOSCart(this)">
-                                    <div class="h-20 w-full bg-gray-50 rounded-lg overflow-hidden mb-2">
+                                    <div class="h-20 w-full bg-gray-50 rounded-lg overflow-hidden mb-2 flex items-center justify-center">
+                                        {% if product.image %}
                                         <img src="{{ product.image }}" alt="{{ product.name }}" class="w-full h-full object-contain p-1" onerror="this.style.display='none'">
+                                        {% else %}
+                                        <span class="text-3xl">📦</span>
+                                        {% endif %}
                                     </div>
-                                    <p class="text-xs font-semibold text-[#0f172a] truncate">{{ product.name }}</p>
-                                    <p class="text-green-600 font-bold text-sm">KSh {{ "%.0f"|format(product.price) }}</p>
-                                    <p class="text-[10px] text-gray-400">Stock: {{ product.stock }}</p>
+                                    <p class="text-xs font-semibold text-[#0f172a] truncate">{{ product.name|default('Product') }}</p>
+                                    <p class="text-green-600 font-bold text-sm">KSh {{ product.price|default(0)|int|format_number }}</p>
+                                    <p class="text-[10px] text-gray-400">Stock: {{ product.stock|default(0) }}</p>
                                     <button class="mt-1 w-full py-1 bg-green-600 text-white text-xs rounded-full hover:bg-green-700 transition group-hover:scale-105">
                                         <i class="fas fa-plus"></i> Add
                                     </button>
@@ -790,6 +1137,13 @@
 
     <script>
         // ============================================================
+        // FORMAT NUMBER HELPER
+        // ============================================================
+        function formatNumber(num) { 
+            return Number(num || 0).toLocaleString('en-KE'); 
+        }
+
+        // ============================================================
         // NOTIFICATIONS
         // ============================================================
         function toggleNotifications() {
@@ -871,7 +1225,33 @@
                 .then(data => {
                     const el = document.getElementById('dashRevenue');
                     if (el) el.textContent = 'KSh ' + formatNumber(data.total_revenue || 0);
-                }).catch(() => {});
+                })
+                .catch(() => {});
+            
+            fetch('/admin/api/top-products')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('topProducts');
+                    if (!container) return;
+                    
+                    if (data.products && data.products.length > 0) {
+                        container.innerHTML = data.products.map(p => `
+                            <div class="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
+                                <div class="flex items-center gap-2">
+                                    <span class="w-6 h-6 rounded-full bg-blue-100 text-blue-600 text-xs flex items-center justify-center font-bold">${p.rank}</span>
+                                    <span class="text-sm font-medium">${p.name}</span>
+                                </div>
+                                <span class="text-sm font-bold text-green-600">KSh ${formatNumber(p.revenue)}</span>
+                            </div>
+                        `).join('');
+                    } else {
+                        container.innerHTML = '<p class="text-gray-400 text-sm">No product sales data yet</p>';
+                    }
+                })
+                .catch(() => {
+                    const container = document.getElementById('topProducts');
+                    if (container) container.innerHTML = '<p class="text-gray-400 text-sm">Unable to load top products</p>';
+                });
         }
 
         // ============================================================
@@ -891,26 +1271,20 @@
                     
                     const elements = {
                         totalRevenue: document.getElementById('totalRevenue'),
-                        totalCost: document.getElementById('totalCost'),
                         totalProfit: document.getElementById('totalProfit'),
                         totalOrders: document.getElementById('totalOrders'),
-                        revRevenue: document.getElementById('revRevenue'),
-                        revProfit: document.getElementById('revProfit'),
                         profitMargin: document.getElementById('profitMargin')
                     };
                     
-                    if (elements.totalRevenue) elements.totalRevenue.textContent = 'KSh ' + formatNumber(data.total_revenue);
-                    if (elements.totalCost) elements.totalCost.textContent = 'KSh ' + formatNumber(data.total_cost);
-                    if (elements.totalProfit) elements.totalProfit.textContent = 'KSh ' + formatNumber(data.total_profit);
-                    if (elements.totalOrders) elements.totalOrders.textContent = data.total_orders;
-                    if (elements.revRevenue) elements.revRevenue.textContent = 'KSh ' + formatNumber(data.total_revenue);
-                    if (elements.revProfit) elements.revProfit.textContent = 'KSh ' + formatNumber(data.total_profit);
+                    if (elements.totalRevenue) elements.totalRevenue.textContent = 'KSh ' + formatNumber(data.total_revenue || 0);
+                    if (elements.totalProfit) elements.totalProfit.textContent = 'KSh ' + formatNumber(data.total_profit || 0);
+                    if (elements.totalOrders) elements.totalOrders.textContent = data.total_orders || 0;
                     
                     const margin = data.total_revenue > 0 ? ((data.total_profit / data.total_revenue) * 100) : 0;
                     if (elements.profitMargin) elements.profitMargin.textContent = margin.toFixed(1) + '%';
                     
-                    updateMonthlyTable(data.monthly_data);
-                    updateProductTable(data.all_product_sales);
+                    updateMonthlyTable(data.monthly_data || {});
+                    updateProductTable(data.product_sales || {});
                 })
                 .catch(() => {
                     if (monthlyTable) monthlyTable.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-red-400">Error loading data</td></tr>';
@@ -933,10 +1307,10 @@
                 const marginColor = margin > 20 ? 'text-green-600' : margin > 10 ? 'text-yellow-600' : 'text-red-600';
                 return `<tr class="border-b border-gray-100/50 hover:bg-gray-50/50 transition-all">
                     <td class="py-3 font-semibold text-[#0f172a]">${month}</td>
-                    <td class="py-3 text-right text-gray-600">${data.orders}</td>
-                    <td class="py-3 text-right text-gray-600">${data.items}</td>
+                    <td class="py-3 text-right text-gray-600">${data.orders || 0}</td>
+                    <td class="py-3 text-right text-gray-600">${data.items || 0}</td>
                     <td class="py-3 text-right text-green-600 font-bold">KSh ${formatNumber(data.revenue)}</td>
-                    <td class="py-3 text-right text-blue-600 font-semibold">KSh ${formatNumber(data.cost)}</td>
+                    <td class="py-3 text-right text-blue-600 font-semibold">KSh ${formatNumber(data.cost || 0)}</td>
                     <td class="py-3 text-right text-purple-600 font-bold">KSh ${formatNumber(data.profit)}</td>
                     <td class="py-3 text-right ${marginColor} font-bold">${margin.toFixed(1)}%</td>
                 </tr>`;
@@ -947,7 +1321,7 @@
             const tbody = document.getElementById('productTable');
             if (!tbody) return;
             
-            const products = Object.entries(productSales);
+            const products = Object.entries(productSales || {});
             if (products.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-gray-400">No sales yet</td></tr>';
                 return;
@@ -957,19 +1331,17 @@
                 const marginColor = margin > 20 ? 'text-green-600' : margin > 10 ? 'text-yellow-600' : 'text-red-600';
                 return `<tr class="border-b border-gray-100/50 hover:bg-gray-50/50 transition-all">
                     <td class="py-3 font-semibold text-[#0f172a]">${name}</td>
-                    <td class="py-3 text-right text-gray-600">${data.quantity}</td>
+                    <td class="py-3 text-right text-gray-600">${data.quantity || 0}</td>
                     <td class="py-3 text-right text-green-600 font-bold">KSh ${formatNumber(data.revenue)}</td>
-                    <td class="py-3 text-right text-blue-600 font-semibold">KSh ${formatNumber(data.cost)}</td>
+                    <td class="py-3 text-right text-blue-600 font-semibold">KSh ${formatNumber(data.cost || 0)}</td>
                     <td class="py-3 text-right text-purple-600 font-bold">KSh ${formatNumber(data.profit)}</td>
                     <td class="py-3 text-right ${marginColor} font-bold">${margin.toFixed(1)}%</td>
                 </tr>`;
             }).join('');
         }
 
-        function formatNumber(num) { return Number(num).toLocaleString('en-KE'); }
-
         // ============================================================
-        // EDIT PRODUCT - FULLY FUNCTIONAL
+        // EDIT PRODUCT
         // ============================================================
         function editProduct(productId) {
             showToast('📦 Loading product data...');
@@ -1068,7 +1440,7 @@
             btn.disabled = true;
 
             const data = {
-                id: document.getElementById('prodId').value,
+                id: document.getElementById('prodId').value || 'prod_' + Math.random().toString(36).substr(2, 6),
                 name: document.getElementById('prodName').value,
                 category: document.getElementById('prodCategory').value,
                 price: parseFloat(document.getElementById('prodPrice').value),
@@ -1151,24 +1523,26 @@
                 .then(r => r.json())
                 .then(order => {
                     const statusBadge = { 'pending': 'badge-warning', 'confirmed': 'badge-info', 'shipped': 'badge-purple', 'delivered': 'badge-success' }[order.status] || 'badge-warning';
+                    const customer = order.customer || {};
+                    const items = order.items || [];
+                    
                     details.innerHTML = `
                         <div class="detail-row"><span class="label">Order ID</span><span class="value font-mono">${order.order_id}</span></div>
-                        <div class="detail-row"><span class="label">Customer</span><span class="value font-semibold">${order.customer?.name || 'Customer'}</span></div>
-                        <div class="detail-row"><span class="label">Email</span><span class="value">${order.customer?.email || 'N/A'}</span></div>
-                        <div class="detail-row"><span class="label">Phone</span><span class="value">${order.customer?.phone || 'N/A'}</span></div>
-                        <div class="detail-row"><span class="label">Address</span><span class="value">${order.customer?.address || 'N/A'}</span></div>
+                        <div class="detail-row"><span class="label">Customer</span><span class="value font-semibold">${customer.name || 'Customer'}</span></div>
+                        <div class="detail-row"><span class="label">Email</span><span class="value">${customer.email || 'N/A'}</span></div>
+                        <div class="detail-row"><span class="label">Phone</span><span class="value">${customer.phone || 'N/A'}</span></div>
                         <div class="detail-row"><span class="label">Status</span><span class="value"><span class="badge ${statusBadge}">${order.status || 'Pending'}</span></span></div>
                         <div class="detail-row"><span class="label">Date</span><span class="value">${order.created_at ? order.created_at.slice(0, 10) : 'N/A'}</span></div>
                         <div class="detail-row" style="border-top:2px solid #2563eb;padding-top:12px;margin-top:4px;">
                             <span class="label font-bold text-[#0f172a]">Total</span>
-                            <span class="value font-extrabold text-blue-600 text-lg">KSh ${order.total}</span>
+                            <span class="value font-extrabold text-blue-600 text-lg">KSh ${formatNumber(order.total)}</span>
                         </div>
                         <div style="margin-top:16px;padding-top:16px;border-top:1px solid #eef2f6;">
                             <h4 class="font-bold text-[#0f172a] text-sm mb-3">Order Items</h4>
-                            ${(order.items || []).map(item => `
+                            ${items.map(item => `
                                 <div class="flex justify-between items-center py-2 border-b border-gray-100/50 last:border-0">
                                     <div><span class="font-medium text-sm">${item.name}</span><span class="text-xs text-gray-400 ml-2">× ${item.quantity}</span></div>
-                                    <span class="font-semibold text-sm">KSh ${item.total}</span>
+                                    <span class="font-semibold text-sm">KSh ${formatNumber(item.total)}</span>
                                 </div>
                             `).join('')}
                         </div>
@@ -1217,33 +1591,25 @@
         }
 
         // ============================================================
-        // POS SYSTEM - COMPLETE FIXED
+        // POS SYSTEM
         // ============================================================
         let posCart = [];
         let posTotal = 0;
         let posSubtotal = 0;
 
-        // ============================================================
-        // ADD TO POS CART - FIXED (uses DOM data, not API)
-        // ============================================================
         function addToPOSCart(element) {
-            // Get the card element
             const card = element.closest ? element.closest('.product-pos-card') : element;
             if (!card) {
                 showToast('❌ Product not found');
                 return;
             }
             
-            // Get data from dataset
             const productId = card.dataset.id || '';
             const name = card.dataset.name || 'Product';
             const price = parseFloat(card.dataset.price) || 0;
             const stock = parseInt(card.dataset.stock) || 0;
             const image = card.dataset.image || '';
             
-            console.log('Adding product:', {id: productId, name, price, stock});
-            
-            // Validate
             if (!productId || price <= 0) {
                 showToast('❌ Invalid product');
                 return;
@@ -1253,7 +1619,6 @@
                 return;
             }
             
-            // Check if already in cart
             const existing = posCart.find(item => item.id === productId);
             if (existing) {
                 if (existing.quantity < stock) {
@@ -1276,9 +1641,6 @@
             showToast('✅ Added: ' + name);
         }
 
-        // ============================================================
-        // UPDATE POS CART
-        // ============================================================
         function updatePOSQuantity(index, delta) {
             if (posCart[index]) {
                 const newQty = posCart[index].quantity + delta;
@@ -1300,9 +1662,6 @@
             showToast('🗑️ Item removed');
         }
 
-        // ============================================================
-        // UPDATE POS UI - COMPLETE REWRITE
-        // ============================================================
         function updatePOSUI() {
             const container = document.getElementById('posCartItems');
             const itemsList = document.getElementById('posCartItemsList');
@@ -1312,7 +1671,6 @@
             const itemCountEl = document.getElementById('itemCount');
             const placeBtn = document.getElementById('posPlaceOrderBtn');
             
-            // Calculate totals
             posSubtotal = 0;
             posCart.forEach(item => {
                 const price = Number(item.price) || 0;
@@ -1321,25 +1679,21 @@
             });
             posTotal = posSubtotal;
             
-            // Update summary
-            if (subtotalEl) subtotalEl.textContent = 'KSh ' + posSubtotal.toLocaleString();
-            if (totalEl) totalEl.textContent = 'KSh ' + posTotal.toLocaleString();
+            if (subtotalEl) subtotalEl.textContent = 'KSh ' + formatNumber(posSubtotal);
+            if (totalEl) totalEl.textContent = 'KSh ' + formatNumber(posTotal);
             
             const totalQty = posCart.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
             if (itemCountEl) itemCountEl.textContent = totalQty + ' items';
             
-            // Update place order button
             if (placeBtn) {
                 placeBtn.disabled = posCart.length === 0;
                 placeBtn.style.opacity = posCart.length === 0 ? '0.5' : '1';
             }
             
-            // Hide empty message
             if (emptyMessage) {
                 emptyMessage.style.display = posCart.length === 0 ? 'block' : 'none';
             }
             
-            // Render cart items
             if (!itemsList) return;
             
             if (posCart.length === 0) {
@@ -1360,7 +1714,7 @@
                         </div>
                         <div class="flex-1 min-w-0">
                             <p class="text-xs font-semibold truncate">${displayName}</p>
-                            <p class="cart-item-price" style="color:#059669;font-weight:700;font-size:0.9rem;">KSh ${price.toLocaleString()}</p>
+                            <p class="cart-item-price" style="color:#059669;font-weight:700;font-size:0.9rem;">KSh ${formatNumber(price)}</p>
                         </div>
                         <div class="flex items-center gap-1">
                             <button onclick="updatePOSQuantity(${index}, -1)" class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 text-xs font-bold">-</button>
@@ -1377,9 +1731,6 @@
             itemsList.innerHTML = html;
         }
 
-        // ============================================================
-        // CLEAR POS CART
-        // ============================================================
         function clearCart() {
             if (posCart.length > 0 && !confirm('Clear all items from current order?')) return;
             posCart = [];
@@ -1387,9 +1738,6 @@
             showToast('🔄 Cart cleared');
         }
 
-        // ============================================================
-        // PLACE POS ORDER
-        // ============================================================
         function placePOSOrder() {
             if (posCart.length === 0) {
                 showToast('⚠️ Add items first!');
@@ -1543,6 +1891,40 @@
             updateCounters();
             updatePOSUI();
             
+            // Set up revenue chart if canvas exists
+            const ctx = document.getElementById('revenueChart');
+            if (ctx) {
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
+                        datasets: [{
+                            label: 'Revenue',
+                            data: [0, 0, 0, 0, 0, 0],
+                            borderColor: '#2563eb',
+                            backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                            fill: true,
+                            tension: 0.4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: {
+                                    callback: function(value) { return 'KSh ' + formatNumber(value); }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            
             setInterval(checkNotifications, 60000);
             setInterval(updateCounters, 30000);
         });
@@ -1558,7 +1940,8 @@
             }
         });
         window.addEventListener('scroll', function() {
-            document.getElementById('mainHeader').classList.toggle('scrolled', window.scrollY > 20);
+            const header = document.getElementById('mainHeader');
+            if (header) header.classList.toggle('scrolled', window.scrollY > 20);
         });
     </script>
 </body>
