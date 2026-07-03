@@ -36,17 +36,6 @@ except:
 
 app.static_folder = STATIC_FOLDER
 
-# ===== TEMPLATE FILTERS =====
-@app.template_filter('format_number')
-def format_number_filter(value):
-    """Format number with commas"""
-    try:
-        if value is None:
-            return "0"
-        return f"{int(float(value)):,}"
-    except (ValueError, TypeError):
-        return "0"
-
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -96,32 +85,17 @@ def load_orders():
             data = response.json()
             if isinstance(data, list):
                 for order in data:
-                    # Parse customer field
-                    if isinstance(order.get('customer'), str):
-                        try:
-                            order['customer'] = json.loads(order['customer'])
-                        except:
-                            order['customer'] = {}
-                    elif isinstance(order.get('customer'), list):
+                    if isinstance(order.get('customer'), list):
                         order['customer'] = order['customer'][0] if order['customer'] else {}
-                    
-                    # Parse items field
                     if isinstance(order.get('items'), str):
                         try:
                             order['items'] = json.loads(order['items'])
                         except:
                             order['items'] = []
-                    
-                    # Ensure proper types
                     if not isinstance(order.get('customer'), dict):
                         order['customer'] = {}
                     if not isinstance(order.get('items'), list):
                         order['items'] = []
-                    if order.get('total') is None:
-                        order['total'] = 0
-                    if order.get('subtotal') is None:
-                        order['subtotal'] = 0
-                
                 return data
         return []
     except Exception as e:
@@ -139,14 +113,6 @@ def load_products():
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list):
-                # Ensure all products have required fields
-                for product in data:
-                    if product.get('price') is None:
-                        product['price'] = 0
-                    if product.get('stock') is None:
-                        product['stock'] = 0
-                    if product.get('cost_price') is None:
-                        product['cost_price'] = 0
                 return data
         return []
     except Exception as e:
@@ -172,16 +138,17 @@ def load_bundles():
 def save_order_to_supabase(order_data):
     """Save order to Supabase"""
     try:
+        import json as json_module
         supabase_order = {
             'order_id': order_data.get('order_id'),
-            'items': json.dumps(order_data.get('items', [])),
-            'subtotal': float(order_data.get('subtotal', 0)),
-            'shipping': float(order_data.get('shipping', 0)),
-            'total': float(order_data.get('total', 0)),
+            'items': json_module.dumps(order_data.get('items', [])),
+            'subtotal': order_data.get('subtotal', 0),
+            'shipping': order_data.get('shipping', 0),
+            'total': order_data.get('total', 0),
             'status': order_data.get('status', 'pending'),
             'source': order_data.get('source', 'web'),
             'created_at': order_data.get('created_at', datetime.utcnow().isoformat()),
-            'customer': json.dumps(order_data.get('customer', {}))
+            'customer': json_module.dumps(order_data.get('customer', {}))
         }
         response = requests.post(
             f"{SUPABASE_URL}/rest/v1/orders",
@@ -200,16 +167,15 @@ def update_product_stock(product_id, new_stock):
         response = requests.patch(
             f"{SUPABASE_URL}/rest/v1/products?id=eq.{product_id}",
             headers=SUPABASE_HEADERS,
-            json={'stock': int(new_stock)},
+            json={'stock': new_stock},
             timeout=5
         )
         return response.status_code in [200, 204]
-    except Exception as e:
-        print(f"Error updating stock: {e}")
+    except:
         return False
 
 def get_cart():
-    """Get cart from session with proper initialization"""
+    """Get cart from session"""
     try:
         cart = session.get('cart', {})
         if isinstance(cart, list):
@@ -256,8 +222,6 @@ def get_sales_analytics():
         pos_orders_count = 0
         web_orders_count = 0
         customer_data = {}
-        monthly_data = {}
-        product_sales = {}
         
         for order in orders:
             if order.get('status') == 'cancelled':
@@ -289,67 +253,33 @@ def get_sales_analytics():
             else:
                 web_orders_count += 1
             
-            # Customer tracking
             customer_name = customer.get('name', 'Unknown') if isinstance(customer, dict) else 'Unknown'
-            if customer_name != 'Unknown':
-                if customer_name not in customer_data:
-                    customer_data[customer_name] = {
-                        'name': customer_name,
-                        'email': customer.get('email', ''),
-                        'phone': customer.get('phone', ''),
-                        'orders': 0,
-                        'total_spent': 0
-                    }
-                customer_data[customer_name]['orders'] += 1
-                customer_data[customer_name]['total_spent'] += float(order.get('total', 0))
-            
-            # Monthly tracking
-            created_at = order.get('created_at', '')
-            month = created_at[:7] if created_at else datetime.utcnow().strftime('%Y-%m')
-            if month not in monthly_data:
-                monthly_data[month] = {
+            if customer_name not in customer_data and customer_name != 'Unknown':
+                customer_data[customer_name] = {
+                    'name': customer_name,
+                    'email': customer.get('email', '') if isinstance(customer, dict) else '',
+                    'phone': customer.get('phone', '') if isinstance(customer, dict) else '',
                     'orders': 0,
-                    'items': 0,
-                    'revenue': 0,
-                    'cost': 0,
-                    'profit': 0
+                    'total_spent': 0
                 }
-            monthly_data[month]['orders'] += 1
+            if customer_name in customer_data:
+                customer_data[customer_name]['orders'] += 1
+                customer_data[customer_name]['total_spent'] += order.get('total', 0)
             
             for item in items:
                 product_id = str(item.get('product_id', ''))
-                quantity = int(item.get('quantity', 1))
-                price = float(item.get('price', 0))
-                item_total = float(item.get('total', price * quantity))
+                quantity = item.get('quantity', 1)
+                price = item.get('price', 0)
+                item_total = item.get('total', price * quantity)
                 
                 product = product_lookup.get(product_id, {})
-                cost_price = float(product.get('cost_price', 0)) if product else 0
+                cost_price = product.get('cost_price', 0) if product else 0
                 item_cost = cost_price * quantity
                 
                 total_revenue += item_total
                 total_cost += item_cost
                 total_profit += (item_total - item_cost)
                 total_items_sold += quantity
-                
-                # Monthly data
-                monthly_data[month]['items'] += quantity
-                monthly_data[month]['revenue'] += item_total
-                monthly_data[month]['cost'] += item_cost
-                monthly_data[month]['profit'] += (item_total - item_cost)
-                
-                # Product sales
-                product_name = item.get('name', 'Unknown Product')
-                if product_name not in product_sales:
-                    product_sales[product_name] = {
-                        'quantity': 0,
-                        'revenue': 0,
-                        'cost': 0,
-                        'profit': 0
-                    }
-                product_sales[product_name]['quantity'] += quantity
-                product_sales[product_name]['revenue'] += item_total
-                product_sales[product_name]['cost'] += item_cost
-                product_sales[product_name]['profit'] += (item_total - item_cost)
         
         return {
             'total_revenue': total_revenue,
@@ -360,13 +290,12 @@ def get_sales_analytics():
             'pos_orders_count': pos_orders_count,
             'web_orders_count': web_orders_count,
             'total_customers': len(customer_data),
-            'monthly_data': monthly_data,
-            'product_sales': product_sales,
+            'monthly_data': {},
+            'product_sales': {},
             'customer_data': customer_data
         }
     except Exception as e:
         print(f"Error in analytics: {e}")
-        traceback.print_exc()
         return {
             'total_revenue': 0,
             'total_cost': 0,
@@ -673,11 +602,11 @@ def update_cart_item(item_id, action):
         for iid, qty in cart.items():
             product = product_lookup.get(str(iid))
             if product:
-                subtotal += float(product.get('price', 0)) * qty
+                subtotal += product.get('price', 0) * qty
             else:
                 bundle = bundle_lookup.get(str(iid))
                 if bundle:
-                    subtotal += float(bundle.get('price', 0)) * qty
+                    subtotal += bundle.get('price', 0) * qty
         
         shipping = 0 if subtotal >= 50000 else 800
         total = subtotal + shipping
@@ -686,11 +615,11 @@ def update_cart_item(item_id, action):
         item_price = 0
         product = product_lookup.get(str(item_id))
         if product:
-            item_price = float(product.get('price', 0))
+            item_price = product.get('price', 0)
         else:
             bundle = bundle_lookup.get(str(item_id))
             if bundle:
-                item_price = float(bundle.get('price', 0))
+                item_price = bundle.get('price', 0)
         
         return jsonify({
             'success': True,
@@ -746,12 +675,11 @@ def checkout_page():
             
             product = product_lookup.get(str(item_id))
             if product:
-                price = float(product.get('price', 0))
-                item_total = price * quantity
+                item_total = product.get('price', 0) * quantity
                 cart_items.append({
                     'id': item_id,
                     'name': product.get('name', 'Product'),
-                    'price': price,
+                    'price': product.get('price', 0),
                     'image': product.get('image', ''),
                     'type': 'product',
                     'quantity': quantity,
@@ -763,12 +691,11 @@ def checkout_page():
             
             bundle = bundle_lookup.get(str(item_id))
             if bundle:
-                price = float(bundle.get('price', 0))
-                item_total = price * quantity
+                item_total = bundle.get('price', 0) * quantity
                 cart_items.append({
                     'id': item_id,
                     'name': bundle.get('name', 'Bundle'),
-                    'price': price,
+                    'price': bundle.get('price', 0),
                     'image': bundle.get('image', ''),
                     'type': 'bundle',
                     'quantity': quantity,
@@ -828,20 +755,19 @@ def place_order():
                 
             product = product_lookup.get(str(item_id))
             if product:
-                current_stock = int(product.get('stock', 0))
+                current_stock = product.get('stock', 0)
                 if current_stock < quantity:
                     return jsonify({
                         'success': False,
                         'message': f'Not enough stock for {product.get("name")}. Available: {current_stock}'
                     }), 400
                 
-                price = float(product.get('price', 0))
-                item_total = price * quantity
+                item_total = product.get('price', 0) * quantity
                 subtotal += item_total
                 order_items.append({
                     'product_id': item_id,
                     'name': product.get('name', 'Product'),
-                    'price': price,
+                    'price': product.get('price', 0),
                     'quantity': quantity,
                     'total': item_total,
                     'type': 'product'
@@ -854,13 +780,12 @@ def place_order():
             
             bundle = bundle_lookup.get(str(item_id))
             if bundle:
-                price = float(bundle.get('price', 0))
-                item_total = price * quantity
+                item_total = bundle.get('price', 0) * quantity
                 subtotal += item_total
                 order_items.append({
                     'product_id': item_id,
                     'name': bundle.get('name', 'Bundle'),
-                    'price': price,
+                    'price': bundle.get('price', 0),
                     'quantity': quantity,
                     'total': item_total,
                     'type': 'bundle'
@@ -950,36 +875,12 @@ def api_products():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
-@app.route('/api/products/<product_id>')
-def api_product_detail(product_id):
-    """Get single product by ID"""
-    try:
-        products = load_products()
-        for p in products:
-            if str(p.get('id')) == str(product_id):
-                return jsonify(p)
-        return jsonify({'error': 'Product not found'}), 404
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
 @app.route('/api/orders')
 def api_orders():
     try:
         return jsonify(load_orders())
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/orders/<order_id>')
-def api_order_detail(order_id):
-    """Get single order by ID"""
-    try:
-        orders = load_orders()
-        for o in orders:
-            if str(o.get('order_id')) == str(order_id):
-                return jsonify(o)
-        return jsonify({'error': 'Order not found'}), 404
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/cart-count', methods=['GET'])
 def cart_count():
@@ -1062,7 +963,7 @@ def admin_dashboard():
                         'total_spent': 0
                     }
                 customer_list[name]['orders'] += 1
-                customer_list[name]['total_spent'] += float(order.get('total', 0))
+                customer_list[name]['total_spent'] += order.get('total', 0)
         
         customers = list(customer_list.values())
         customers.sort(key=lambda x: x['orders'], reverse=True)
@@ -1158,7 +1059,7 @@ def admin_pos():
                     'total_spent': 0
                 }
             customer_list[name]['orders'] += 1
-            customer_list[name]['total_spent'] += float(order.get('total', 0))
+            customer_list[name]['total_spent'] += order.get('total', 0)
     
     customers = list(customer_list.values())
     customers.sort(key=lambda x: x['orders'], reverse=True)
@@ -1188,10 +1089,10 @@ def admin_pos_place_order():
         
         for item in data.get('items', []):
             product_id = str(item.get('product_id'))
-            quantity = int(item.get('quantity', 1))
+            quantity = item.get('quantity', 1)
             product = product_lookup.get(product_id)
             if product:
-                current_stock = int(product.get('stock', 0))
+                current_stock = product.get('stock', 0)
                 if current_stock < quantity:
                     return jsonify({
                         'success': False,
@@ -1203,9 +1104,9 @@ def admin_pos_place_order():
         order_data = {
             'order_id': order_id,
             'items': data.get('items', []),
-            'subtotal': float(data.get('subtotal', 0)),
-            'shipping': float(data.get('shipping', 0)),
-            'total': float(data.get('total', 0)),
+            'subtotal': data.get('subtotal', 0),
+            'shipping': data.get('shipping', 0),
+            'total': data.get('total', 0),
             'status': 'confirmed',
             'source': 'pos',
             'created_at': datetime.utcnow().isoformat(),
@@ -1241,79 +1142,6 @@ def admin_pos_place_order():
         print(f"POS Order error: {e}")
         traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
-
-@app.route('/admin/api/notifications')
-def admin_api_notifications():
-    """Get notifications for admin"""
-    if not session.get('admin_logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
-    
-    try:
-        orders = load_orders()
-        pending = [o for o in orders if o.get('status') == 'pending']
-        pending_count = len(pending)
-        
-        notifications = []
-        if pending_count > 0:
-            notifications.append({
-                'icon': '📦',
-                'title': f'{pending_count} pending orders',
-                'time': 'Just now'
-            })
-        
-        products = load_products()
-        low_stock = [p for p in products if p.get('stock', 0) < 5]
-        if low_stock:
-            notifications.append({
-                'icon': '⚠️',
-                'title': f'{len(low_stock)} products low in stock',
-                'time': 'Just now'
-            })
-        
-        return jsonify({
-            'count': len(notifications),
-            'notifications': notifications
-        })
-    except Exception as e:
-        return jsonify({'count': 0, 'notifications': []})
-
-@app.route('/admin/api/top-products')
-def admin_api_top_products():
-    """Get top selling products"""
-    if not session.get('admin_logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
-    
-    try:
-        orders = load_orders()
-        product_sales = {}
-        
-        for order in orders:
-            if order.get('status') == 'cancelled':
-                continue
-            
-            items = order.get('items', [])
-            if isinstance(items, str):
-                try:
-                    items = json.loads(items)
-                except:
-                    items = []
-            if not isinstance(items, list):
-                items = []
-            
-            for item in items:
-                name = item.get('name', 'Unknown')
-                revenue = float(item.get('total', 0))
-                if name not in product_sales:
-                    product_sales[name] = 0
-                product_sales[name] += revenue
-        
-        sorted_products = sorted(product_sales.items(), key=lambda x: x[1], reverse=True)[:5]
-        
-        return jsonify({
-            'products': [{'rank': i+1, 'name': name, 'revenue': revenue} for i, (name, revenue) in enumerate(sorted_products)]
-        })
-    except Exception as e:
-        return jsonify({'products': []})
 
 @app.route('/admin/api/analytics')
 def admin_api_analytics():
@@ -1510,138 +1338,6 @@ def test_data():
         })
     except Exception as e:
         return jsonify({'error': str(e)})
-
-@app.route('/load-sample-data', methods=['GET', 'POST'])
-def load_sample_data():
-    """Load sample products into Supabase for testing"""
-    try:
-        sample_products = [
-            {
-                'id': 'iphone_15',
-                'name': 'iPhone 15 Pro Max',
-                'price': 245000.0,
-                'cost_price': 180000.0,
-                'category': 'Phones',
-                'description': 'Latest Apple flagship with A17 Pro chip',
-                'image': 'https://images.unsplash.com/photo-1592286927505-1def25e4c479?w=500',
-                'stock': 15,
-                'rating': 4.9,
-                'reviews': 245,
-                'badge': 'Best Seller'
-            },
-            {
-                'id': 'macbook_pro',
-                'name': 'MacBook Pro 16"',
-                'price': 450000.0,
-                'cost_price': 350000.0,
-                'category': 'Laptops',
-                'description': 'Professional laptop with M3 Max chip',
-                'image': 'https://images.unsplash.com/photo-1517336714731-489689fd1ca8?w=500',
-                'stock': 8,
-                'rating': 4.8,
-                'reviews': 156,
-                'badge': 'New'
-            },
-            {
-                'id': 'airpods_pro',
-                'name': 'AirPods Pro 2',
-                'price': 35000.0,
-                'cost_price': 22000.0,
-                'category': 'Accessories',
-                'description': 'Premium wireless earbuds with ANC',
-                'image': 'https://images.unsplash.com/photo-1606841838e0-bf1baf2dc3e9?w=500',
-                'stock': 25,
-                'rating': 4.7,
-                'reviews': 389,
-                'badge': 'Trending'
-            },
-            {
-                'id': 'samsung_s24',
-                'name': 'Samsung Galaxy S24 Ultra',
-                'price': 165000.0,
-                'cost_price': 115000.0,
-                'category': 'Phones',
-                'description': 'Flagship Android phone with advanced camera',
-                'image': 'https://images.unsplash.com/photo-1511707267537-b85faf00021e?w=500',
-                'stock': 20,
-                'rating': 4.6,
-                'reviews': 234
-            },
-            {
-                'id': 'ipad_pro',
-                'name': 'iPad Pro 12.9"',
-                'price': 185000.0,
-                'cost_price': 140000.0,
-                'category': 'Tablets',
-                'description': 'Powerful tablet with M2 chip',
-                'image': 'https://images.unsplash.com/photo-1561070791-2526d30994b5?w=500',
-                'stock': 12,
-                'rating': 4.7,
-                'reviews': 198,
-                'badge': 'New'
-            }
-        ]
-        
-        added = 0
-        errors = []
-        
-        for product in sample_products:
-            try:
-                response = requests.post(
-                    f"{SUPABASE_URL}/rest/v1/products",
-                    headers=SUPABASE_HEADERS,
-                    json=product,
-                    timeout=5
-                )
-                if response.status_code in [200, 201]:
-                    added += 1
-                else:
-                    errors.append(f"{product['name']}: {response.status_code}")
-            except Exception as e:
-                errors.append(f"{product['name']}: {str(e)}")
-        
-        return jsonify({
-            'success': True,
-            'added': added,
-            'total': len(sample_products),
-            'errors': errors,
-            'message': f'Loaded {added}/{len(sample_products)} sample products'
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-@app.route('/debug-products')
-def debug_products():
-    """Show all products with detailed info"""
-    try:
-        products = load_products()
-        
-        if not products:
-            return jsonify({
-                'success': False,
-                'error': 'No products loaded',
-                'message': 'Database may be empty. Try /load-sample-data'
-            })
-        
-        product_list = []
-        for p in products:
-            product_list.append({
-                'id': p.get('id'),
-                'name': p.get('name'),
-                'price': p.get('price'),
-                'stock': p.get('stock'),
-                'category': p.get('category'),
-                'has_image': bool(p.get('image'))
-            })
-        
-        return jsonify({
-            'success': True,
-            'total_products': len(products),
-            'products': product_list,
-            'sample': products[0] if products else None
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
 
 # ================================================================
 # ===== RUN APP =====
