@@ -5,64 +5,41 @@ import uuid
 import json
 import requests
 import traceback
-import sys
 from werkzeug.utils import secure_filename
 
-# Initialize Flask
 app = Flask(__name__)
+application = app
 app.secret_key = 'allison-electronics-secret-2026'
 app.permanent_session_lifetime = timedelta(days=7)
 
-# This is CRITICAL for Vercel
-application = app
-
 # ================================================================
-# ===== LOGGING SETUP =====
+# ===== CONFIGURATION =====
 # ================================================================
 
-import logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# ================================================================
-# ===== VERCEL CONFIGURATION =====
-# ================================================================
-
-IS_VERCEL = os.environ.get('VERCEL', False) or os.environ.get('NOW', False)
+IS_VERCEL = 'VERCEL' in os.environ or 'NOW' in os.environ
 
 if IS_VERCEL:
     UPLOAD_FOLDER = '/tmp/static/uploads'
     STATIC_FOLDER = '/tmp/static'
-    JSON_FOLDER = '/tmp'
-    logger.info("🚀 Running on Vercel")
 else:
     UPLOAD_FOLDER = 'static/uploads'
     STATIC_FOLDER = 'static'
-    JSON_FOLDER = '.'
-    logger.info("💻 Running locally")
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_CONTENT_LENGTH = 5 * 1024 * 1024
 
-# Create directories
 try:
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     os.makedirs(STATIC_FOLDER, exist_ok=True)
 except:
-    UPLOAD_FOLDER = '/tmp/static/uploads'
-    STATIC_FOLDER = '/tmp/static'
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    os.makedirs(STATIC_FOLDER, exist_ok=True)
+    pass
 
 app.static_folder = STATIC_FOLDER
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# ================================================================
-# ===== SUPABASE CONFIGURATION =====
-# ================================================================
-
+# ===== SUPABASE CONFIG =====
 SUPABASE_URL = "https://hzqrdwerkgfmfaufabjr.supabase.co"
 SUPABASE_KEY = "sb_publishable_tnBOmCO7EFfIoXfNjEH_Tg_D7WX-zld"
 
@@ -74,85 +51,66 @@ SUPABASE_HEADERS = {
 }
 
 # ================================================================
-# ===== DATA CACHE - PREVENTS MULTIPLE API CALLS =====
+# ===== DIRECT DATA LOADING =====
 # ================================================================
 
-_data_cache = {
-    'orders': None,
-    'products': None,
-    'last_fetch': None
-}
-
-def get_from_supabase(endpoint):
-    """Get data from Supabase with caching"""
+def load_orders():
+    """Load orders from Supabase"""
     try:
-        url = f"{SUPABASE_URL}/rest/v1/{endpoint}?select=*"
-        if endpoint == 'orders':
-            url += "&order=created_at.desc"
-        
-        response = requests.get(url, headers=SUPABASE_HEADERS, timeout=10)
+        print("📤 Loading orders from Supabase...")
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc",
+            headers=SUPABASE_HEADERS,
+            timeout=10
+        )
         
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list):
-                logger.info(f"✅ Loaded {len(data)} {endpoint} from Supabase")
+                print(f"✅ Loaded {len(data)} orders")
                 return data
-        else:
-            logger.warning(f"⚠️ Supabase returned {response.status_code} for {endpoint}")
-            logger.warning(f"⚠️ Response: {response.text[:200]}")
-        
+        print(f"⚠️ Orders API returned: {response.status_code}")
         return []
     except Exception as e:
-        logger.error(f"❌ Error fetching {endpoint}: {e}")
-        return []
-
-def load_orders():
-    """Load orders with caching"""
-    try:
-        return get_from_supabase('orders')
-    except Exception as e:
-        logger.error(f"❌ Error in load_orders: {e}")
+        print(f"❌ Error loading orders: {e}")
         return []
 
 def load_products():
-    """Load products with caching"""
+    """Load products from Supabase"""
     try:
-        return get_from_supabase('products')
+        print("📤 Loading products from Supabase...")
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/products?select=*",
+            headers=SUPABASE_HEADERS,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, list):
+                print(f"✅ Loaded {len(data)} products")
+                return data
+        print(f"⚠️ Products API returned: {response.status_code}")
+        return []
     except Exception as e:
-        logger.error(f"❌ Error in load_products: {e}")
+        print(f"❌ Error loading products: {e}")
         return []
 
 def load_bundles():
-    """Load bundles"""
+    """Load bundles from Supabase"""
     try:
-        return get_from_supabase('bundles')
-    except Exception as e:
-        logger.error(f"❌ Error in load_bundles: {e}")
-        return []
-
-def save_to_supabase(endpoint, data):
-    """Save data to Supabase"""
-    try:
-        response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/{endpoint}",
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/bundles?select=*",
             headers=SUPABASE_HEADERS,
-            json=data,
-            timeout=10
+            timeout=5
         )
-        if response.status_code in [200, 201, 204]:
-            logger.info(f"✅ Saved to Supabase: {endpoint}")
-            return True
-        else:
-            logger.error(f"❌ Failed to save to Supabase: {response.status_code}")
-            logger.error(f"❌ Response: {response.text}")
-            return False
-    except Exception as e:
-        logger.error(f"❌ Error saving to Supabase: {e}")
-        return False
-
-# ================================================================
-# ===== CART FUNCTIONS =====
-# ================================================================
+        if response.status_code == 200:
+            data = response.json()
+            if isinstance(data, list):
+                return data
+        return []
+    except:
+        return []
 
 def get_cart():
     cart = session.get('cart', {})
@@ -168,35 +126,6 @@ def get_cart():
         session.modified = True
         return {}
     return cart
-
-# ================================================================
-# ===== HELPER FUNCTIONS =====
-# ================================================================
-
-def get_category_icon(category):
-    icons = {
-        'Phones': 'fa-mobile-screen',
-        'Laptops': 'fa-laptop',
-        'Accessories': 'fa-headphones',
-        'Wearables': 'fa-watch',
-        'Audio': 'fa-music',
-        'Televisions': 'fa-tv',
-        'Gaming': 'fa-gamepad',
-        'Tablets': 'fa-tablet'
-    }
-    return icons.get(category, 'fa-box')
-
-def get_all_categories():
-    return {
-        'Phones': 'fa-mobile-screen',
-        'Laptops': 'fa-laptop',
-        'Accessories': 'fa-headphones',
-        'Wearables': 'fa-watch',
-        'Audio': 'fa-music',
-        'Televisions': 'fa-tv',
-        'Gaming': 'fa-gamepad',
-        'Tablets': 'fa-tablet'
-    }
 
 # ================================================================
 # ===== ANALYTICS =====
@@ -234,7 +163,6 @@ def get_sales_analytics():
             if order.get('status') == 'cancelled':
                 continue
             
-            # Parse customer
             customer = order.get('customer', {})
             if isinstance(customer, str):
                 try:
@@ -242,7 +170,6 @@ def get_sales_analytics():
                 except:
                     customer = {}
             
-            # Parse items
             items = order.get('items', [])
             if isinstance(items, str):
                 try:
@@ -260,8 +187,8 @@ def get_sales_analytics():
             if customer_name not in customer_data:
                 customer_data[customer_name] = {
                     'name': customer_name,
-                    'email': customer.get('email', ''),
-                    'phone': customer.get('phone', ''),
+                    'email': customer.get('email', '') if isinstance(customer, dict) else '',
+                    'phone': customer.get('phone', '') if isinstance(customer, dict) else '',
                     'orders': 0,
                     'total_spent': 0
                 }
@@ -336,7 +263,7 @@ def get_sales_analytics():
             'customer_data': customer_data
         }
     except Exception as e:
-        logger.error(f"❌ Error in get_sales_analytics: {e}")
+        print(f"❌ Error in get_sales_analytics: {e}")
         traceback.print_exc()
         return {
             'total_revenue': 0,
@@ -354,129 +281,188 @@ def get_sales_analytics():
         }
 
 # ================================================================
+# ===== HELPER FUNCTIONS =====
+# ================================================================
+
+def get_category_icon(category):
+    icons = {
+        'Phones': 'fa-mobile-screen',
+        'Laptops': 'fa-laptop',
+        'Accessories': 'fa-headphones',
+        'Wearables': 'fa-watch',
+        'Audio': 'fa-music',
+        'Televisions': 'fa-tv',
+        'Gaming': 'fa-gamepad',
+        'Tablets': 'fa-tablet'
+    }
+    return icons.get(category, 'fa-box')
+
+def get_all_categories():
+    return {
+        'Phones': 'fa-mobile-screen',
+        'Laptops': 'fa-laptop',
+        'Accessories': 'fa-headphones',
+        'Wearables': 'fa-watch',
+        'Audio': 'fa-music',
+        'Televisions': 'fa-tv',
+        'Gaming': 'fa-gamepad',
+        'Tablets': 'fa-tablet'
+    }
+
+# ================================================================
 # ===== ROUTES =====
 # ================================================================
 
 @app.route('/')
 def index():
-    try:
-        products_list = load_products()
-        bundles_list = load_bundles()
-        
-        products_dict = {}
-        for p in products_list:
-            if p and 'id' in p:
-                products_dict[str(p['id'])] = p
-        
-        bundles_dict = {}
-        for b in bundles_list:
-            if b and 'id' in b:
-                bundles_dict[str(b['id'])] = b
-        
-        best_sellers = [p for p in products_list if p.get('badge') == 'Best Seller']
-        new_arrivals = [p for p in products_list if p.get('badge') == 'New']
-        trending = [p for p in products_list if p.get('badge') == 'Trending']
-        
-        categories = {}
-        for p in products_list:
-            cat = p.get('category', 'Other')
-            if cat not in categories:
-                categories[cat] = {
-                    'name': cat,
-                    'icon': get_category_icon(cat),
-                    'count': 0
-                }
-            categories[cat]['count'] += 1
-        
-        return render_template('shop.html',
-            products=products_dict,
-            all_products=products_dict,
-            bundles=bundles_dict,
-            best_sellers=best_sellers,
-            new_arrivals=new_arrivals,
-            trending=trending,
-            categories=categories,
-            CATEGORIES=get_all_categories()
-        )
-    except Exception as e:
-        logger.error(f"❌ Index error: {e}")
-        return render_template_string("<h1>Shop is loading...</h1><p>Please refresh</p>")
+    products_list = load_products()
+    bundles_list = load_bundles()
+    
+    products_dict = {}
+    for p in products_list:
+        if p and 'id' in p:
+            products_dict[str(p['id'])] = p
+    
+    bundles_dict = {}
+    for b in bundles_list:
+        if b and 'id' in b:
+            bundles_dict[str(b['id'])] = b
+    
+    best_sellers = [p for p in products_list if p.get('badge') == 'Best Seller']
+    new_arrivals = [p for p in products_list if p.get('badge') == 'New']
+    trending = [p for p in products_list if p.get('badge') == 'Trending']
+    
+    categories = {}
+    for p in products_list:
+        cat = p.get('category', 'Other')
+        if cat not in categories:
+            categories[cat] = {
+                'name': cat,
+                'icon': get_category_icon(cat),
+                'count': 0
+            }
+        categories[cat]['count'] += 1
+    
+    return render_template('shop.html',
+        products=products_dict,
+        all_products=products_dict,
+        bundles=bundles_dict,
+        best_sellers=best_sellers,
+        new_arrivals=new_arrivals,
+        trending=trending,
+        categories=categories,
+        CATEGORIES=get_all_categories()
+    )
+
+@app.route('/category/<category_name>')
+def category_page(category_name):
+    products = load_products()
+    products_dict = {}
+    for p in products:
+        if p and 'id' in p and p.get('category') == category_name:
+            products_dict[str(p['id'])] = p
+    return render_template('category.html',
+        products=products_dict,
+        category_name=category_name,
+        CATEGORIES=get_all_categories()
+    )
+
+@app.route('/product/<product_id>')
+def product_detail(product_id):
+    products = load_products()
+    product = None
+    for p in products:
+        if str(p.get('id')) == str(product_id):
+            product = p
+            break
+    
+    if not product:
+        flash('Product not found', 'danger')
+        return redirect(url_for('index'))
+    
+    related = [p for p in products if p.get('category') == product.get('category') and str(p.get('id')) != product_id][:4]
+    
+    related_dict = {}
+    for r in related:
+        if r and 'id' in r:
+            related_dict[str(r['id'])] = r
+    
+    return render_template('product.html',
+        product=product,
+        related=related_dict
+    )
 
 @app.route('/cart')
 def cart_page():
-    try:
-        cart = get_cart()
-        cart_items = []
-        subtotal = 0
-        total_items = 0
-        products = load_products()
-        bundles = load_bundles()
+    cart = get_cart()
+    cart_items = []
+    subtotal = 0
+    total_items = 0
+    products = load_products()
+    bundles = load_bundles()
+    
+    for item_id, quantity in cart.items():
+        if quantity <= 0:
+            continue
         
-        for item_id, quantity in cart.items():
-            if quantity <= 0:
-                continue
-            
-            product = None
-            for p in products:
-                if str(p.get('id')) == str(item_id):
-                    product = p
-                    break
-            
-            if product:
-                item_total = product.get('price', 0) * quantity
+        product = None
+        for p in products:
+            if str(p.get('id')) == str(item_id):
+                product = p
+                break
+        
+        if product:
+            item_total = product.get('price', 0) * quantity
+            cart_items.append({
+                'id': item_id,
+                'name': product.get('name', 'Product'),
+                'price': product.get('price', 0),
+                'image': product.get('image', ''),
+                'type': 'product',
+                'quantity': quantity,
+                'item_total': item_total,
+                'stock': product.get('stock', 0),
+                'description': product.get('description', ''),
+                'specs': product.get('specs', [])
+            })
+            subtotal += item_total
+            total_items += quantity
+            continue
+        
+        for bundle in bundles:
+            if str(bundle.get('id')) == str(item_id):
+                item_total = bundle.get('price', 0) * quantity
                 cart_items.append({
                     'id': item_id,
-                    'name': product.get('name', 'Product'),
-                    'price': product.get('price', 0),
-                    'image': product.get('image', ''),
-                    'type': 'product',
+                    'name': bundle.get('name', 'Bundle'),
+                    'price': bundle.get('price', 0),
+                    'image': bundle.get('image', ''),
+                    'type': 'bundle',
                     'quantity': quantity,
                     'item_total': item_total,
-                    'stock': product.get('stock', 0),
-                    'description': product.get('description', ''),
-                    'specs': product.get('specs', [])
+                    'products': bundle.get('products', [])
                 })
                 subtotal += item_total
                 total_items += quantity
-                continue
-            
-            for bundle in bundles:
-                if str(bundle.get('id')) == str(item_id):
-                    item_total = bundle.get('price', 0) * quantity
-                    cart_items.append({
-                        'id': item_id,
-                        'name': bundle.get('name', 'Bundle'),
-                        'price': bundle.get('price', 0),
-                        'image': bundle.get('image', ''),
-                        'type': 'bundle',
-                        'quantity': quantity,
-                        'item_total': item_total,
-                        'products': bundle.get('products', [])
-                    })
-                    subtotal += item_total
-                    total_items += quantity
-                    break
-        
-        shipping = 0 if subtotal >= 50000 else 800
-        total = subtotal + shipping
-        
-        return render_template('cart.html',
-            cart_items=cart_items,
-            subtotal=subtotal,
-            shipping=shipping,
-            total=total,
-            total_items=total_items
-        )
-    except Exception as e:
-        logger.error(f"❌ Cart error: {e}")
-        flash('Error loading cart', 'danger')
-        return redirect(url_for('index'))
+                break
+    
+    shipping = 0 if subtotal >= 50000 else 800
+    total = subtotal + shipping
+    
+    return render_template('cart.html',
+        cart_items=cart_items,
+        subtotal=subtotal,
+        shipping=shipping,
+        total=total,
+        total_items=total_items
+    )
 
 @app.route('/add-to-cart/<item_id>', methods=['POST'])
 def add_to_cart(item_id):
     try:
         cart = get_cart()
         products = load_products()
+        bundles = load_bundles()
         
         product = None
         for p in products:
@@ -491,15 +477,15 @@ def add_to_cart(item_id):
                     'success': False,
                     'message': 'Not enough stock available!'
                 })
-        else:
-            bundles = load_bundles()
-            bundle_exists = False
-            for b in bundles:
-                if str(b.get('id')) == str(item_id):
-                    bundle_exists = True
-                    break
-            if not bundle_exists:
-                return jsonify({'success': False, 'message': 'Item not found'})
+        
+        bundle_exists = False
+        for b in bundles:
+            if str(b.get('id')) == str(item_id):
+                bundle_exists = True
+                break
+        
+        if not product and not bundle_exists:
+            return jsonify({'success': False, 'message': 'Item not found'})
         
         cart[item_id] = cart.get(item_id, 0) + 1
         session['cart'] = cart
@@ -513,7 +499,7 @@ def add_to_cart(item_id):
             'quantity': cart[item_id]
         })
     except Exception as e:
-        logger.error(f"❌ Add to cart error: {e}")
+        print(f"Error adding to cart: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/update-cart/<item_id>/<action>', methods=['POST'])
@@ -598,7 +584,7 @@ def update_cart_item(item_id, action):
             'item_total': item_price * cart.get(item_id, 0)
         })
     except Exception as e:
-        logger.error(f"❌ Update cart error: {e}")
+        print(f"Error updating cart: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/remove-from-cart/<item_id>', methods=['POST'])
@@ -620,73 +606,68 @@ def remove_from_cart(item_id):
 
 @app.route('/checkout')
 def checkout_page():
-    try:
-        cart = get_cart()
-        if not cart:
-            flash('Your cart is empty', 'warning')
-            return redirect(url_for('index'))
+    cart = get_cart()
+    if not cart:
+        flash('Your cart is empty', 'warning')
+        return redirect(url_for('index'))
+    
+    cart_items = []
+    subtotal = 0
+    total_items = 0
+    products = load_products()
+    bundles = load_bundles()
+    
+    for item_id, quantity in cart.items():
+        if quantity <= 0:
+            continue
         
-        cart_items = []
-        subtotal = 0
-        total_items = 0
-        products = load_products()
-        bundles = load_bundles()
+        product = None
+        for p in products:
+            if str(p.get('id')) == str(item_id):
+                product = p
+                break
         
-        for item_id, quantity in cart.items():
-            if quantity <= 0:
-                continue
-            
-            product = None
-            for p in products:
-                if str(p.get('id')) == str(item_id):
-                    product = p
-                    break
-            
-            if product:
-                item_total = product.get('price', 0) * quantity
+        if product:
+            item_total = product.get('price', 0) * quantity
+            cart_items.append({
+                'id': item_id,
+                'name': product.get('name', 'Product'),
+                'price': product.get('price', 0),
+                'image': product.get('image', ''),
+                'type': 'product',
+                'quantity': quantity,
+                'item_total': item_total
+            })
+            subtotal += item_total
+            total_items += quantity
+            continue
+        
+        for bundle in bundles:
+            if str(bundle.get('id')) == str(item_id):
+                item_total = bundle.get('price', 0) * quantity
                 cart_items.append({
                     'id': item_id,
-                    'name': product.get('name', 'Product'),
-                    'price': product.get('price', 0),
-                    'image': product.get('image', ''),
-                    'type': 'product',
+                    'name': bundle.get('name', 'Bundle'),
+                    'price': bundle.get('price', 0),
+                    'image': bundle.get('image', ''),
+                    'type': 'bundle',
                     'quantity': quantity,
                     'item_total': item_total
                 })
                 subtotal += item_total
                 total_items += quantity
-                continue
-            
-            for bundle in bundles:
-                if str(bundle.get('id')) == str(item_id):
-                    item_total = bundle.get('price', 0) * quantity
-                    cart_items.append({
-                        'id': item_id,
-                        'name': bundle.get('name', 'Bundle'),
-                        'price': bundle.get('price', 0),
-                        'image': bundle.get('image', ''),
-                        'type': 'bundle',
-                        'quantity': quantity,
-                        'item_total': item_total
-                    })
-                    subtotal += item_total
-                    total_items += quantity
-                    break
-        
-        shipping = 0 if subtotal >= 50000 else 800
-        total = subtotal + shipping
-        
-        return render_template('checkout.html',
-            cart_items=cart_items,
-            subtotal=subtotal,
-            shipping=shipping,
-            total=total,
-            total_items=total_items
-        )
-    except Exception as e:
-        logger.error(f"❌ Checkout error: {e}")
-        flash('Error loading checkout', 'danger')
-        return redirect(url_for('index'))
+                break
+    
+    shipping = 0 if subtotal >= 50000 else 800
+    total = subtotal + shipping
+    
+    return render_template('checkout.html',
+        cart_items=cart_items,
+        subtotal=subtotal,
+        shipping=shipping,
+        total=total,
+        total_items=total_items
+    )
 
 @app.route('/place-order', methods=['POST'])
 def place_order():
@@ -775,34 +756,8 @@ def place_order():
             }
         }
         
-        logger.info(f"📦 Placing order: {order_id}")
-        
         # Save to Supabase
-        success = save_order_to_supabase(order_data)
-        
-        if success:
-            session['cart'] = {}
-            session.modified = True
-            
-            return jsonify({
-                'success': True,
-                'order_id': order_id,
-                'total': total,
-                'message': 'Order placed successfully!'
-            })
-        else:
-            return jsonify({'success': False, 'message': 'Failed to save order. Please try again.'}), 500
-            
-    except Exception as e:
-        logger.error(f"❌ Error placing order: {e}")
-        traceback.print_exc()
-        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
-
-def save_order_to_supabase(order_data):
-    """Save order to Supabase"""
-    try:
         import json as json_module
-        
         supabase_order = {
             'order_id': order_data.get('order_id'),
             'items': json_module.dumps(order_data.get('items', [])),
@@ -822,17 +777,23 @@ def save_order_to_supabase(order_data):
             timeout=10
         )
         
-        logger.info(f"📤 Supabase response: {response.status_code}")
-        
         if response.status_code in [200, 201, 204]:
-            logger.info(f"✅ Order saved to Supabase: {order_data.get('order_id')}")
-            return True
+            session['cart'] = {}
+            session.modified = True
+            
+            return jsonify({
+                'success': True,
+                'order_id': order_id,
+                'total': total,
+                'message': 'Order placed successfully!'
+            })
         else:
-            logger.error(f"❌ Failed to save order: {response.text}")
-            return False
+            return jsonify({'success': False, 'message': 'Failed to save order'}), 500
+            
     except Exception as e:
-        logger.error(f"❌ Error saving order: {e}")
-        return False
+        print(f"❌ Error placing order: {e}")
+        traceback.print_exc()
+        return jsonify({'success': False, 'message': f'Error: {str(e)}'}), 500
 
 @app.route('/order-confirmation/<order_id>')
 def order_confirmation(order_id):
@@ -850,32 +811,23 @@ def clear_cart():
 
 @app.route('/api/status')
 def api_status():
-    try:
-        orders = load_orders()
-        products = load_products()
-        return jsonify({
-            'products': len(products),
-            'orders': len(orders),
-            'timestamp': datetime.utcnow().isoformat(),
-            'environment': 'vercel' if IS_VERCEL else 'local',
-            'success': True
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    orders = load_orders()
+    products = load_products()
+    return jsonify({
+        'success': True,
+        'products': len(products),
+        'orders': len(orders),
+        'timestamp': datetime.utcnow().isoformat(),
+        'environment': 'vercel' if IS_VERCEL else 'local'
+    })
 
 @app.route('/api/products')
 def api_products():
-    try:
-        return jsonify(load_products())
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    return jsonify(load_products())
 
 @app.route('/api/orders')
 def api_orders():
-    try:
-        return jsonify(load_orders())
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
+    return jsonify(load_orders())
 
 @app.route('/cart-count', methods=['GET'])
 def cart_count():
@@ -918,12 +870,14 @@ def admin_dashboard():
         return redirect(url_for('admin_login'))
     
     try:
+        # Load data
         products = load_products()
         orders = load_orders()
         bundles = load_bundles()
         cart = get_cart()
         analytics = get_sales_analytics()
         
+        # Build customer list
         customer_list = {}
         pos_count = 0
         web_count = 0
@@ -957,19 +911,17 @@ def admin_dashboard():
         customers = list(customer_list.values())
         customers.sort(key=lambda x: x['orders'], reverse=True)
         
-        if products is None or not isinstance(products, list):
-            products = []
-        if orders is None or not isinstance(orders, list):
-            orders = []
-        if bundles is None or not isinstance(bundles, list):
-            bundles = []
-        if cart is None or not isinstance(cart, dict):
-            cart = {}
+        # Debug output
+        print(f"📊 DASHBOARD DATA:")
+        print(f"  Products: {len(products)}")
+        print(f"  Orders: {len(orders)}")
+        print(f"  Customers: {len(customers)}")
+        print(f"  Revenue: {analytics.get('total_revenue', 0)}")
         
         stats = {
             'total_products': len(products),
             'total_bundles': len(bundles),
-            'total_cart_items': sum(cart.values()),
+            'total_cart_items': sum(cart.values()) if cart else 0,
             'low_stock': len([p for p in products if p.get('stock', 0) < 10]),
             'total_orders': len(orders),
             'pending_orders': len([o for o in orders if o.get('status') == 'pending']),
@@ -994,7 +946,7 @@ def admin_dashboard():
         )
         
     except Exception as e:
-        logger.error(f"❌ Admin dashboard error: {e}")
+        print(f"❌ Admin dashboard error: {e}")
         traceback.print_exc()
         flash('Error loading admin dashboard', 'danger')
         
@@ -1077,23 +1029,6 @@ def admin_pos_place_order():
         
         order_id = f"POS-{uuid.uuid4().hex[:8].upper()}"
         
-        # Update stock
-        products = load_products()
-        product_lookup = {str(p.get('id')): p for p in products}
-        
-        for item in data.get('items', []):
-            product_id = str(item.get('product_id'))
-            quantity = item.get('quantity', 1)
-            product = product_lookup.get(product_id)
-            if product:
-                current_stock = product.get('stock', 0)
-                if current_stock < quantity:
-                    return jsonify({
-                        'success': False,
-                        'message': f'Not enough stock for {product.get("name")}. Available: {current_stock}'
-                    }), 400
-                product['stock'] = max(0, current_stock - quantity)
-        
         order_data = {
             'order_id': order_id,
             'items': data.get('items', []),
@@ -1112,9 +1047,27 @@ def admin_pos_place_order():
         }
         
         # Save to Supabase
-        success = save_order_to_supabase(order_data)
+        import json as json_module
+        supabase_order = {
+            'order_id': order_data.get('order_id'),
+            'items': json_module.dumps(order_data.get('items', [])),
+            'subtotal': order_data.get('subtotal', 0),
+            'shipping': order_data.get('shipping', 0),
+            'total': order_data.get('total', 0),
+            'status': order_data.get('status', 'confirmed'),
+            'source': order_data.get('source', 'pos'),
+            'created_at': order_data.get('created_at', datetime.utcnow().isoformat()),
+            'customer': json_module.dumps(order_data.get('customer', {}))
+        }
         
-        if not success:
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/orders",
+            headers=SUPABASE_HEADERS,
+            json=supabase_order,
+            timeout=10
+        )
+        
+        if response.status_code not in [200, 201, 204]:
             return jsonify({'success': False, 'message': 'Failed to save order'}), 500
         
         analytics = get_sales_analytics()
@@ -1135,7 +1088,7 @@ def admin_pos_place_order():
         })
             
     except Exception as e:
-        logger.error(f"❌ POS Order error: {e}")
+        print(f"❌ POS Order error: {e}")
         traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 
@@ -1143,6 +1096,7 @@ def admin_pos_place_order():
 def admin_api_analytics():
     if not session.get('admin_logged_in'):
         return jsonify({'error': 'Unauthorized'}), 401
+    
     try:
         analytics = get_sales_analytics()
         return jsonify(analytics)
@@ -1153,6 +1107,7 @@ def admin_api_analytics():
 def admin_api_revenue():
     if not session.get('admin_logged_in'):
         return jsonify({'error': 'Unauthorized'}), 401
+    
     try:
         analytics = get_sales_analytics()
         return jsonify({
@@ -1225,7 +1180,6 @@ def admin_products():
         else:
             return jsonify({'success': False, 'message': 'Error saving product'}), 500
     except Exception as e:
-        logger.error(f"Error saving product: {e}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/admin/products/<product_id>', methods=['DELETE'])
@@ -1268,39 +1222,41 @@ def admin_update_order_status(order_id):
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
 
-@app.route('/force-sync')
-def force_sync():
-    """Check if data exists in Supabase"""
-    if not session.get('admin_logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
-    
+# ================================================================
+# ===== DEBUG ROUTES =====
+# ================================================================
+
+@app.route('/debug')
+def debug():
+    """Check data in Supabase"""
     try:
         orders = load_orders()
         products = load_products()
+        return jsonify({
+            'orders_count': len(orders),
+            'products_count': len(products),
+            'sample_order': orders[0] if orders else None,
+            'sample_product': products[0] if products else None,
+            'is_vercel': IS_VERCEL
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)})
+
+@app.route('/test-data')
+def test_data():
+    """Test data loading"""
+    try:
+        orders = load_orders()
+        products = load_products()
+        analytics = get_sales_analytics()
         
         return jsonify({
             'success': True,
             'orders_count': len(orders),
             'products_count': len(products),
-            'sample_order': orders[0] if orders else None,
-            'sample_product': products[0] if products else None
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/debug')
-def debug():
-    """Debug endpoint"""
-    try:
-        orders = load_orders()
-        products = load_products()
-        return jsonify({
-            'orders_count': len(orders),
-            'products_count': len(products),
-            'is_vercel': IS_VERCEL,
-            'sample_order': orders[0] if orders else None,
-            'sample_product': products[0] if products else None,
-            'supabase_url': SUPABASE_URL
+            'revenue': analytics.get('total_revenue', 0),
+            'customers': analytics.get('total_customers', 0),
+            'sample_order': orders[0] if orders else None
         })
     except Exception as e:
         return jsonify({'error': str(e)})
@@ -1315,16 +1271,13 @@ if __name__ == '__main__':
     print("="*60)
     print(f"🌍 Environment: {'Vercel' if IS_VERCEL else 'Local'}")
     
-    # Test connection
-    try:
-        orders = load_orders()
-        products = load_products()
-        print(f"\n📊 Products: {len(products) if products else 0}")
-        print(f"📊 Orders: {len(orders) if orders else 0}")
-    except Exception as e:
-        print(f"⚠️ Error loading data: {e}")
-    
+    # Test data loading
+    orders = load_orders()
+    products = load_products()
+    print(f"\n📊 Products: {len(products) if products else 0}")
+    print(f"📊 Orders: {len(orders) if orders else 0}")
     print("="*60)
+    
     print("\n🚀 Starting server...")
     print("📍 http://localhost:5000")
     print("🔑 Login: admin / electronics2026")
