@@ -567,7 +567,7 @@
                                      data-price="{{ product.price }}"
                                      data-stock="{{ product.stock }}"
                                      data-image="{{ product.image }}"
-                                     onclick="addToPOSCart('{{ product.id }}')">
+                                     onclick="addToPOSCart(this)">
                                     <div class="h-20 w-full bg-gray-50 rounded-lg overflow-hidden mb-2">
                                         <img src="{{ product.image }}" alt="{{ product.name }}" class="w-full h-full object-contain p-1" onerror="this.style.display='none'">
                                     </div>
@@ -607,10 +607,14 @@
                                     <input type="hidden" id="posCustomerPhone" />
                                 </div>
 
-                                <div class="max-h-64 overflow-y-auto space-y-2 mb-3" id="posCartItems">
-                                    <div class="text-center text-gray-400 text-sm py-8">
-                                        <i class="fas fa-shopping-bag text-3xl block mb-2 text-gray-300"></i>
-                                        No items added yet
+                                <!-- POS CART ITEMS -->
+                                <div id="posCartContainer">
+                                    <div class="max-h-64 overflow-y-auto space-y-2 mb-3" id="posCartItems">
+                                        <div class="text-center text-gray-400 text-sm py-8" id="emptyCartMessage">
+                                            <i class="fas fa-shopping-bag text-3xl block mb-2 text-gray-300"></i>
+                                            No items added yet
+                                        </div>
+                                        <div id="posCartItemsList"></div>
                                     </div>
                                 </div>
 
@@ -1213,44 +1217,68 @@
         }
 
         // ============================================================
-        // POS SYSTEM - COMPLETE
+        // POS SYSTEM - COMPLETE FIXED
         // ============================================================
         let posCart = [];
         let posTotal = 0;
         let posSubtotal = 0;
 
-        function addToPOSCart(productId) {
-            fetch(`/api/products/${productId}`)
-                .then(r => r.json())
-                .then(product => {
-                    const existing = posCart.find(item => item.id === productId);
-                    if (existing) {
-                        if (existing.quantity < product.stock) {
-                            existing.quantity++;
-                        } else {
-                            showToast('⚠️ Not enough stock available!');
-                            return;
-                        }
-                    } else {
-                        if (product.stock <= 0) {
-                            showToast('⚠️ Out of stock!');
-                            return;
-                        }
-                        posCart.push({
-                            id: product.id,
-                            name: product.name,
-                            price: product.price,
-                            image: product.image,
-                            stock: product.stock,
-                            quantity: 1
-                        });
-                    }
-                    updatePOSUI();
-                    showToast('✅ Added to order: ' + product.name);
-                })
-                .catch(err => showToast('❌ Error: ' + err.message));
+        // ============================================================
+        // ADD TO POS CART - FIXED (uses DOM data, not API)
+        // ============================================================
+        function addToPOSCart(element) {
+            // Get the card element
+            const card = element.closest ? element.closest('.product-pos-card') : element;
+            if (!card) {
+                showToast('❌ Product not found');
+                return;
+            }
+            
+            // Get data from dataset
+            const productId = card.dataset.id || '';
+            const name = card.dataset.name || 'Product';
+            const price = parseFloat(card.dataset.price) || 0;
+            const stock = parseInt(card.dataset.stock) || 0;
+            const image = card.dataset.image || '';
+            
+            console.log('Adding product:', {id: productId, name, price, stock});
+            
+            // Validate
+            if (!productId || price <= 0) {
+                showToast('❌ Invalid product');
+                return;
+            }
+            if (stock <= 0) {
+                showToast('⚠️ Out of stock!');
+                return;
+            }
+            
+            // Check if already in cart
+            const existing = posCart.find(item => item.id === productId);
+            if (existing) {
+                if (existing.quantity < stock) {
+                    existing.quantity++;
+                } else {
+                    showToast('⚠️ Not enough stock!');
+                    return;
+                }
+            } else {
+                posCart.push({
+                    id: productId,
+                    name: name,
+                    price: price,
+                    image: image,
+                    stock: stock,
+                    quantity: 1
+                });
+            }
+            updatePOSUI();
+            showToast('✅ Added: ' + name);
         }
 
+        // ============================================================
+        // UPDATE POS CART
+        // ============================================================
         function updatePOSQuantity(index, delta) {
             if (posCart[index]) {
                 const newQty = posCart[index].quantity + delta;
@@ -1272,59 +1300,86 @@
             showToast('🗑️ Item removed');
         }
 
+        // ============================================================
+        // UPDATE POS UI - COMPLETE REWRITE
+        // ============================================================
         function updatePOSUI() {
             const container = document.getElementById('posCartItems');
+            const itemsList = document.getElementById('posCartItemsList');
+            const emptyMessage = document.getElementById('emptyCartMessage');
             const subtotalEl = document.getElementById('posSubtotal');
             const totalEl = document.getElementById('posTotal');
             const itemCountEl = document.getElementById('itemCount');
             const placeBtn = document.getElementById('posPlaceOrderBtn');
             
-            posSubtotal = posCart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            // Calculate totals
+            posSubtotal = 0;
+            posCart.forEach(item => {
+                const price = Number(item.price) || 0;
+                const quantity = Number(item.quantity) || 0;
+                posSubtotal += price * quantity;
+            });
             posTotal = posSubtotal;
             
+            // Update summary
+            if (subtotalEl) subtotalEl.textContent = 'KSh ' + posSubtotal.toLocaleString();
+            if (totalEl) totalEl.textContent = 'KSh ' + posTotal.toLocaleString();
+            
+            const totalQty = posCart.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
+            if (itemCountEl) itemCountEl.textContent = totalQty + ' items';
+            
+            // Update place order button
+            if (placeBtn) {
+                placeBtn.disabled = posCart.length === 0;
+                placeBtn.style.opacity = posCart.length === 0 ? '0.5' : '1';
+            }
+            
+            // Hide empty message
+            if (emptyMessage) {
+                emptyMessage.style.display = posCart.length === 0 ? 'block' : 'none';
+            }
+            
+            // Render cart items
+            if (!itemsList) return;
+            
             if (posCart.length === 0) {
-                container.innerHTML = `
-                    <div class="text-center text-gray-400 text-sm py-8">
-                        <i class="fas fa-shopping-bag text-3xl block mb-2 text-gray-300"></i>
-                        No items added yet
-                    </div>
-                `;
-                subtotalEl.textContent = 'KSh 0';
-                totalEl.textContent = 'KSh 0';
-                itemCountEl.textContent = '0 items';
-                placeBtn.disabled = true;
-                placeBtn.style.opacity = '0.5';
+                itemsList.innerHTML = '';
                 return;
             }
             
-            placeBtn.disabled = false;
-            placeBtn.style.opacity = '1';
+            let html = '';
+            posCart.forEach((item, index) => {
+                const price = Number(item.price) || 0;
+                const quantity = Number(item.quantity) || 1;
+                const displayName = item.name || 'Product';
+                
+                html += `
+                    <div class="pos-cart-item flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-100">
+                        <div class="w-10 h-10 rounded-lg overflow-hidden bg-white flex-shrink-0 flex items-center justify-center">
+                            ${item.image ? `<img src="${item.image}" class="w-full h-full object-contain p-1" onerror="this.style.display='none'">` : '<span class="text-2xl">📱</span>'}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-semibold truncate">${displayName}</p>
+                            <p class="cart-item-price" style="color:#059669;font-weight:700;font-size:0.9rem;">KSh ${price.toLocaleString()}</p>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <button onclick="updatePOSQuantity(${index}, -1)" class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 text-xs font-bold">-</button>
+                            <span class="text-sm font-bold w-6 text-center">${quantity}</span>
+                            <button onclick="updatePOSQuantity(${index}, 1)" class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 text-xs font-bold">+</button>
+                            <button onclick="removePOSItem(${index})" class="text-red-400 hover:text-red-600 text-sm ml-1 p-1">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
             
-            container.innerHTML = posCart.map((item, index) => `
-                <div class="pos-cart-item flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-100">
-                    <div class="w-10 h-10 rounded-lg overflow-hidden bg-white flex-shrink-0">
-                        <img src="${item.image}" class="w-full h-full object-contain p-1" onerror="this.style.display='none'">
-                    </div>
-                    <div class="flex-1 min-w-0">
-                        <p class="text-xs font-semibold truncate">${item.name}</p>
-                        <p class="text-green-600 font-bold text-xs">KSh ${item.price}</p>
-                    </div>
-                    <div class="flex items-center gap-1">
-                        <button onclick="updatePOSQuantity(${index}, -1)" class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 text-xs font-bold">-</button>
-                        <span class="text-sm font-bold w-6 text-center">${item.quantity}</span>
-                        <button onclick="updatePOSQuantity(${index}, 1)" class="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 text-xs font-bold">+</button>
-                        <button onclick="removePOSItem(${index})" class="text-red-400 hover:text-red-600 text-sm ml-1">
-                            <i class="fas fa-times"></i>
-                        </button>
-                    </div>
-                </div>
-            `).join('');
-            
-            subtotalEl.textContent = 'KSh ' + posSubtotal.toLocaleString();
-            totalEl.textContent = 'KSh ' + posTotal.toLocaleString();
-            itemCountEl.textContent = posCart.reduce((sum, i) => sum + i.quantity, 0) + ' items';
+            itemsList.innerHTML = html;
         }
 
+        // ============================================================
+        // CLEAR POS CART
+        // ============================================================
         function clearCart() {
             if (posCart.length > 0 && !confirm('Clear all items from current order?')) return;
             posCart = [];
@@ -1332,22 +1387,25 @@
             showToast('🔄 Cart cleared');
         }
 
+        // ============================================================
+        // PLACE POS ORDER
+        // ============================================================
         function placePOSOrder() {
             if (posCart.length === 0) {
                 showToast('⚠️ Add items first!');
                 return;
             }
             
-            const customerName = document.getElementById('posCustomer').value || 'Walk-in Customer';
-            const customerEmail = document.getElementById('posCustomerEmail').value || 'walkin@example.com';
-            const customerPhone = document.getElementById('posCustomerPhone').value || 'N/A';
+            const customerName = document.getElementById('posCustomer')?.value || 'Walk-in Customer';
+            const customerEmail = document.getElementById('posCustomerEmail')?.value || 'walkin@example.com';
+            const customerPhone = document.getElementById('posCustomerPhone')?.value || 'N/A';
             
             const orderItems = posCart.map(item => ({
                 product_id: item.id,
-                name: item.name,
-                price: item.price,
-                quantity: item.quantity,
-                total: item.price * item.quantity,
+                name: item.name || 'Product',
+                price: Number(item.price) || 0,
+                quantity: Number(item.quantity) || 1,
+                total: (Number(item.price) || 0) * (Number(item.quantity) || 1),
                 type: 'product'
             }));
             
@@ -1364,6 +1422,8 @@
             };
             
             const btn = document.getElementById('posPlaceOrderBtn');
+            if (!btn) return;
+            
             const originalText = btn.innerHTML;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
             btn.disabled = true;
@@ -1373,14 +1433,17 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(orderData)
             })
-            .then(r => r.json())
+            .then(r => {
+                if (!r.ok) throw new Error('Network response was not ok');
+                return r.json();
+            })
             .then(data => {
                 if (data.success) {
                     showToast('✅ Order placed successfully! #' + data.order_id);
                     posCart = [];
                     updatePOSUI();
                 } else {
-                    showToast('❌ Error: ' + data.message);
+                    showToast('❌ Error: ' + (data.message || 'Unknown error'));
                 }
                 btn.innerHTML = originalText;
                 btn.disabled = false;
@@ -1392,22 +1455,26 @@
             });
         }
 
+        // ============================================================
+        // CUSTOMER MODAL
+        // ============================================================
         function toggleCustomerModal() {
             const modal = document.getElementById('customerModal');
-            modal.classList.toggle('hidden');
+            if (modal) modal.classList.toggle('hidden');
         }
 
         function closeCustomerModal(event) {
             if (!event || event.target.classList.contains('modal-overlay') || event.target.classList.contains('close-btn')) {
-                document.getElementById('customerModal').classList.add('hidden');
+                const modal = document.getElementById('customerModal');
+                if (modal) modal.classList.add('hidden');
             }
         }
 
         function addCustomer(event) {
             event.preventDefault();
-            const name = document.getElementById('custName').value.trim();
-            const email = document.getElementById('custEmail').value.trim();
-            const phone = document.getElementById('custPhone').value.trim();
+            const name = document.getElementById('custName')?.value.trim();
+            const email = document.getElementById('custEmail')?.value.trim();
+            const phone = document.getElementById('custPhone')?.value.trim();
             
             if (!name) {
                 showToast('⚠️ Please enter customer name');
@@ -1415,24 +1482,32 @@
             }
             
             const select = document.getElementById('posCustomer');
-            const option = document.createElement('option');
-            option.value = name;
-            option.textContent = name;
-            select.appendChild(option);
-            select.value = name;
+            if (select) {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                select.appendChild(option);
+                select.value = name;
+            }
             
-            document.getElementById('posCustomerEmail').value = email;
-            document.getElementById('posCustomerPhone').value = phone;
+            const emailInput = document.getElementById('posCustomerEmail');
+            const phoneInput = document.getElementById('posCustomerPhone');
+            if (emailInput) emailInput.value = email || '';
+            if (phoneInput) phoneInput.value = phone || '';
             
             closeCustomerModal();
             showToast('✅ Customer added: ' + name);
-            document.getElementById('customerForm').reset();
+            const form = document.getElementById('customerForm');
+            if (form) form.reset();
         }
 
         function selectCustomer() {
-            // Customer selected
+            // Customer selected from dropdown
         }
 
+        // ============================================================
+        // FILTER POS PRODUCTS
+        // ============================================================
         function filterPOSProducts(query) {
             const searchTerm = query.toLowerCase().trim();
             const cards = document.querySelectorAll('.product-pos-card');
@@ -1466,6 +1541,7 @@
             loadDashboardRevenue();
             checkNotifications();
             updateCounters();
+            updatePOSUI();
             
             setInterval(checkNotifications, 60000);
             setInterval(updateCounters, 30000);
