@@ -196,7 +196,6 @@ def load_products():
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list):
-                    # Save to JSON as backup
                     save_json('products.json', data)
                     return data
                 if isinstance(data, dict) and 'items' in data:
@@ -206,7 +205,6 @@ def load_products():
         except Exception as e:
             print(f"Error loading products from Supabase: {e}")
     
-    # Fallback to JSON
     return load_json('products.json')
 
 def load_product_by_id(product_id):
@@ -312,7 +310,6 @@ def save_product_to_db(product_data):
                 )
             print(f"✅ Product saved to Supabase: {product_copy.get('id')}")
             
-            # Also save to JSON as backup
             products = load_products()
             found = False
             for p in products:
@@ -383,7 +380,6 @@ def load_orders():
     if not isinstance(json_orders, list):
         json_orders = []
 
-    # Merge orders
     merged = {}
     for order in json_orders:
         oid = order.get('order_id')
@@ -400,7 +396,6 @@ def load_orders():
 
 def save_order_to_db(order_data):
     """Save order to Supabase and JSON backup"""
-    # Always save to JSON first (works offline)
     json_saved = save_order_to_json(order_data)
 
     if DB_CONNECTED:
@@ -432,7 +427,6 @@ def save_order_to_json(order_data):
         if not isinstance(orders, list):
             orders = []
         
-        # Remove duplicate if exists
         orders = [o for o in orders if o.get('order_id') != order_data.get('order_id')]
         orders.insert(0, order_data)
         
@@ -1422,11 +1416,9 @@ def admin_pos_place_order():
             }
         }
         
-        # This saves to JSON first (offline) then tries Supabase (online)
         if not save_order_to_db(order_data):
             return jsonify({'success': False, 'message': 'Failed to save order'}), 500
 
-        # Update stock for every product sold
         for updated_product in products_to_update:
             save_product_to_db(updated_product)
             print(f"✅ Stock updated: {updated_product.get('name')} → {updated_product.get('stock')}")
@@ -1529,7 +1521,6 @@ def admin_delete_product(product_id):
             if response.status_code in [200, 204]:
                 return jsonify({'success': True})
         
-        # Always delete from JSON
         products = load_products()
         if isinstance(products, list):
             products = [p for p in products if str(p.get('id')) != str(product_id)]
@@ -1559,7 +1550,6 @@ def admin_update_order_status(order_id):
                     timeout=5
                 )
                 if response.status_code in [200, 204]:
-                    # Update JSON too
                     orders = load_orders()
                     if isinstance(orders, list):
                         for order in orders:
@@ -1571,7 +1561,6 @@ def admin_update_order_status(order_id):
             except:
                 pass
         
-        # Always update JSON
         orders = load_orders()
         if isinstance(orders, list):
             for order in orders:
@@ -1593,6 +1582,209 @@ def cart_count():
         return jsonify({'count': count})
     except Exception as e:
         return jsonify({'count': 0})
+
+# ================================================================
+# ===== DATA IMPORT/EXPORT ROUTES =====
+# ================================================================
+
+@app.route('/export-local-data')
+def export_local_data():
+    """Export local JSON data for migration"""
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = {
+        'products': load_json('products.json'),
+        'orders': load_json('orders.json'),
+        'bundles': load_json('bundles.json'),
+        'analytics': get_sales_analytics()
+    }
+    
+    return jsonify(data)
+
+@app.route('/import-data', methods=['POST'])
+def import_data():
+    """Import data to Vercel - POST JSON"""
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        data = request.get_json()
+        messages = []
+        
+        if 'products' in data and data['products']:
+            save_json('products.json', data['products'])
+            messages.append(f"✅ Imported {len(data['products'])} products")
+            
+            if DB_CONNECTED:
+                for product in data['products']:
+                    try:
+                        check = requests.get(
+                            f"{SUPABASE_URL}/rest/v1/products?id=eq.{product.get('id')}",
+                            headers=SUPABASE_HEADERS,
+                            timeout=5
+                        )
+                        if check.status_code == 200 and check.json():
+                            requests.patch(
+                                f"{SUPABASE_URL}/rest/v1/products?id=eq.{product.get('id')}",
+                                headers=SUPABASE_HEADERS,
+                                json=product,
+                                timeout=5
+                            )
+                        else:
+                            requests.post(
+                                f"{SUPABASE_URL}/rest/v1/products",
+                                headers=SUPABASE_HEADERS,
+                                json=product,
+                                timeout=5
+                            )
+                    except Exception as e:
+                        print(f"Error syncing product: {e}")
+        
+        if 'orders' in data and data['orders']:
+            save_json('orders.json', data['orders'])
+            messages.append(f"✅ Imported {len(data['orders'])} orders")
+            
+            if DB_CONNECTED:
+                for order in data['orders']:
+                    try:
+                        requests.post(
+                            f"{SUPABASE_URL}/rest/v1/orders",
+                            headers=SUPABASE_HEADERS,
+                            json=order,
+                            timeout=5
+                        )
+                    except Exception as e:
+                        print(f"Error syncing order: {e}")
+        
+        if 'bundles' in data and data['bundles']:
+            save_json('bundles.json', data['bundles'])
+            messages.append(f"✅ Imported {len(data['bundles'])} bundles")
+        
+        if not messages:
+            messages.append("⚠️ No data to import")
+        
+        return jsonify({
+            'success': True,
+            'message': ' | '.join(messages),
+            'products': len(data.get('products', [])),
+            'orders': len(data.get('orders', []))
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/admin/import-page')
+def import_page():
+    """Simple import page - works on Vercel"""
+    if not session.get('admin_logged_in'):
+        flash('Please login first', 'danger')
+        return redirect(url_for('admin_login'))
+    
+    return render_template_string('''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Import Data - Price Point</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f2f5; padding: 40px; }
+            .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); }
+            h1 { color: #1a1a2e; margin-bottom: 10px; }
+            p { color: #666; margin-bottom: 30px; }
+            .step { background: #f8f9fa; padding: 20px; border-radius: 12px; margin-bottom: 20px; border-left: 4px solid #3b82f6; }
+            .step h3 { color: #1a1a2e; margin-bottom: 10px; }
+            .step ol { padding-left: 20px; color: #333; }
+            .step ol li { margin-bottom: 8px; }
+            .code-block { background: #1a1a2e; color: #e2e8f0; padding: 15px; border-radius: 8px; font-family: monospace; font-size: 13px; overflow-x: auto; margin: 10px 0; white-space: pre-wrap; word-wrap: break-word; }
+            textarea { width: 100%; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; font-family: monospace; font-size: 14px; min-height: 200px; resize: vertical; }
+            textarea:focus { outline: none; border-color: #3b82f6; }
+            .btn { padding: 12px 30px; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.3s; }
+            .btn-primary { background: #3b82f6; color: white; }
+            .btn-primary:hover { background: #2563eb; transform: translateY(-2px); }
+            .btn-success { background: #22c55e; color: white; }
+            .btn-success:hover { background: #16a34a; transform: translateY(-2px); }
+            .btn-outline { background: transparent; border: 2px solid #e2e8f0; color: #475569; }
+            .btn-outline:hover { background: #f1f5f9; }
+            .flex { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+            .mb-10 { margin-bottom: 10px; }
+            label { font-weight: 600; display: block; margin-bottom: 5px; color: #1a1a2e; }
+            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+            @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+            .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+            .badge-success { background: #dcfce7; color: #166534; }
+            .badge-info { background: #dbeafe; color: #1e40af; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📥 Import Data to Vercel</h1>
+            <p>Copy your local data and import it to this Vercel deployment</p>
+            
+            <div class="step">
+                <h3>📋 Current Data Status</h3>
+                <div class="grid-2">
+                    <div>
+                        <p><strong>Products:</strong> <span class="badge badge-info">{{ products|length }}</span></p>
+                        <p><strong>Orders:</strong> <span class="badge badge-info">{{ orders|length }}</span></p>
+                    </div>
+                    <div>
+                        <p><strong>Mode:</strong> 
+                            {% if DB_CONNECTED %}
+                            <span class="badge badge-success">🟢 Online</span>
+                            {% else %}
+                            <span class="badge badge-info">🔴 Offline</span>
+                            {% endif %}
+                        </p>
+                        <p><strong>Revenue:</strong> KSh {{ analytics.total_revenue|default(0)|int }}</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="step">
+                <h3>Step 1: Get your local data</h3>
+                <ol>
+                    <li>Go to your <strong>local</strong> Price Point at <code>http://localhost:5000/export-local-data</code></li>
+                    <li>Copy the entire JSON response</li>
+                    <li>Or paste your <code>products.json</code> and <code>orders.json</code> content below</li>
+                </ol>
+                <div class="code-block"># On your local machine, visit:
+http://localhost:5000/export-local-data
+
+# Or view your JSON files:
+cat products.json
+cat orders.json</div>
+            </div>
+            
+            <div class="step">
+                <h3>Step 2: Paste your data here</h3>
+                <form method="POST" action="{{ url_for('import_data') }}">
+                    <div class="mb-10">
+                        <label>Products Data (from products.json)</label>
+                        <textarea name="products_data" placeholder='[{"id": "1", "name": "iPhone", ...}]'></textarea>
+                    </div>
+                    <div class="mb-10">
+                        <label>Orders Data (from orders.json)</label>
+                        <textarea name="orders_data" placeholder='[{"order_id": "ELEC-123", ...}]'></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-success">📥 Import Data</button>
+                </form>
+            </div>
+            
+            <div class="step">
+                <h3>Step 3: Or use the API directly</h3>
+                <div class="code-block">curl -X POST {{ request.host_url }}import-data \
+  -H "Content-Type: application/json" \
+  -d '{"products": [...], "orders": [...]}'</div>
+            </div>
+            
+            <div class="flex">
+                <a href="/admin" class="btn btn-outline">← Back to Admin</a>
+                <a href="/admin/pos" class="btn btn-primary">🛒 Go to POS</a>
+            </div>
+        </div>
+    </body>
+    </html>
+    ''', products=load_products(), orders=load_orders(), analytics=get_sales_analytics(), DB_CONNECTED=DB_CONNECTED)
 
 # ================================================================
 # ===== DEBUG ROUTE =====
