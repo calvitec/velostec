@@ -39,7 +39,10 @@ app.static_folder = STATIC_FOLDER
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
+# ================================================================
 # ===== SUPABASE CONFIG =====
+# ================================================================
+
 SUPABASE_URL = "https://hzqrdwerkgfmfaufabjr.supabase.co"
 SUPABASE_KEY = "sb_publishable_tnBOmCO7EFfIoXfNjEH_Tg_D7WX-zld"
 
@@ -49,6 +52,22 @@ SUPABASE_HEADERS = {
     "Content-Type": "application/json",
     "Prefer": "return=representation"
 }
+
+# ================================================================
+# ===== ERROR HANDLERS =====
+# ================================================================
+
+@app.errorhandler(404)
+def not_found(e):
+    if request.path.startswith('/admin/') or request.path.startswith('/api/'):
+        return jsonify({'error': 'Not found', 'message': 'The requested endpoint does not exist'}), 404
+    return render_template('404.html'), 404
+
+@app.errorhandler(500)
+def server_error(e):
+    if request.path.startswith('/admin/') or request.path.startswith('/api/'):
+        return jsonify({'error': 'Server error', 'message': 'Something went wrong'}), 500
+    return render_template('500.html'), 500
 
 # ================================================================
 # ===== DATA FUNCTIONS =====
@@ -65,7 +84,6 @@ def load_orders():
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list):
-                # Normalize data
                 for order in data:
                     if isinstance(order.get('customer'), list):
                         order['customer'] = order['customer'][0] if order['customer'] else {}
@@ -157,19 +175,24 @@ def update_product_stock(product_id, new_stock):
         return False
 
 def get_cart():
-    cart = session.get('cart', {})
-    if isinstance(cart, list):
-        new_cart = {}
-        for item_id in cart:
-            new_cart[item_id] = new_cart.get(item_id, 0) + 1
-        session['cart'] = new_cart
-        session.modified = True
-        return new_cart
-    if not isinstance(cart, dict):
-        session['cart'] = {}
-        session.modified = True
+    """Get cart from session - with proper initialization"""
+    try:
+        cart = session.get('cart', {})
+        if isinstance(cart, list):
+            new_cart = {}
+            for item_id in cart:
+                new_cart[item_id] = new_cart.get(item_id, 0) + 1
+            session['cart'] = new_cart
+            session.modified = True
+            return new_cart
+        if not isinstance(cart, dict):
+            session['cart'] = {}
+            session.modified = True
+            return {}
+        return cart
+    except Exception as e:
+        print(f"Error getting cart: {e}")
         return {}
-    return cart
 
 # ================================================================
 # ===== ANALYTICS =====
@@ -204,7 +227,6 @@ def get_sales_analytics():
             if order.get('status') == 'cancelled':
                 continue
             
-            # Parse customer safely
             customer = order.get('customer', {})
             if isinstance(customer, str):
                 try:
@@ -216,7 +238,6 @@ def get_sales_analytics():
             if not isinstance(customer, dict):
                 customer = {}
             
-            # Parse items safely
             items = order.get('items', [])
             if isinstance(items, str):
                 try:
@@ -403,76 +424,83 @@ def product_detail(product_id):
 
 @app.route('/cart')
 def cart_page():
-    cart = get_cart()
-    cart_items = []
-    subtotal = 0
-    total_items = 0
-    products = load_products()
-    bundles = load_bundles()
-    
-    for item_id, quantity in cart.items():
-        if quantity <= 0:
-            continue
+    try:
+        cart = get_cart()
+        cart_items = []
+        subtotal = 0
+        total_items = 0
+        products = load_products()
+        bundles = load_bundles()
         
-        product = None
-        for p in products:
-            if str(p.get('id')) == str(item_id):
-                product = p
-                break
-        
-        if product:
-            item_total = product.get('price', 0) * quantity
-            cart_items.append({
-                'id': item_id,
-                'name': product.get('name', 'Product'),
-                'price': product.get('price', 0),
-                'image': product.get('image', ''),
-                'type': 'product',
-                'quantity': quantity,
-                'item_total': item_total,
-                'stock': product.get('stock', 0),
-                'description': product.get('description', ''),
-                'specs': product.get('specs', [])
-            })
-            subtotal += item_total
-            total_items += quantity
-            continue
-        
-        for bundle in bundles:
-            if str(bundle.get('id')) == str(item_id):
-                item_total = bundle.get('price', 0) * quantity
+        for item_id, quantity in cart.items():
+            if quantity <= 0:
+                continue
+            
+            product = None
+            for p in products:
+                if str(p.get('id')) == str(item_id):
+                    product = p
+                    break
+            
+            if product:
+                item_total = product.get('price', 0) * quantity
                 cart_items.append({
                     'id': item_id,
-                    'name': bundle.get('name', 'Bundle'),
-                    'price': bundle.get('price', 0),
-                    'image': bundle.get('image', ''),
-                    'type': 'bundle',
+                    'name': product.get('name', 'Product'),
+                    'price': product.get('price', 0),
+                    'image': product.get('image', ''),
+                    'type': 'product',
                     'quantity': quantity,
                     'item_total': item_total,
-                    'products': bundle.get('products', [])
+                    'stock': product.get('stock', 0),
+                    'description': product.get('description', ''),
+                    'specs': product.get('specs', [])
                 })
                 subtotal += item_total
                 total_items += quantity
-                break
-    
-    shipping = 0 if subtotal >= 50000 else 800
-    total = subtotal + shipping
-    
-    return render_template('cart.html',
-        cart_items=cart_items,
-        subtotal=subtotal,
-        shipping=shipping,
-        total=total,
-        total_items=total_items
-    )
+                continue
+            
+            for bundle in bundles:
+                if str(bundle.get('id')) == str(item_id):
+                    item_total = bundle.get('price', 0) * quantity
+                    cart_items.append({
+                        'id': item_id,
+                        'name': bundle.get('name', 'Bundle'),
+                        'price': bundle.get('price', 0),
+                        'image': bundle.get('image', ''),
+                        'type': 'bundle',
+                        'quantity': quantity,
+                        'item_total': item_total,
+                        'products': bundle.get('products', [])
+                    })
+                    subtotal += item_total
+                    total_items += quantity
+                    break
+        
+        shipping = 0 if subtotal >= 50000 else 800
+        total = subtotal + shipping
+        
+        return render_template('cart.html',
+            cart_items=cart_items,
+            subtotal=subtotal,
+            shipping=shipping,
+            total=total,
+            total_items=total_items
+        )
+    except Exception as e:
+        print(f"Cart error: {e}")
+        flash('Error loading cart', 'danger')
+        return redirect(url_for('index'))
 
 @app.route('/add-to-cart/<item_id>', methods=['POST'])
 def add_to_cart(item_id):
+    """Add item to cart - returns JSON"""
     try:
         cart = get_cart()
         products = load_products()
         bundles = load_bundles()
         
+        # Check if product exists
         product = None
         for p in products:
             if str(p.get('id')) == str(item_id):
@@ -487,6 +515,7 @@ def add_to_cart(item_id):
                     'message': 'Not enough stock available!'
                 })
         
+        # Check if bundle exists
         bundle_exists = False
         for b in bundles:
             if str(b.get('id')) == str(item_id):
@@ -494,22 +523,32 @@ def add_to_cart(item_id):
                 break
         
         if not product and not bundle_exists:
-            return jsonify({'success': False, 'message': 'Item not found'})
+            return jsonify({
+                'success': False, 
+                'message': 'Item not found'
+            })
         
+        # Add to cart
         cart[item_id] = cart.get(item_id, 0) + 1
         session['cart'] = cart
         session.modified = True
         
         total_items = sum(cart.values())
+        
         return jsonify({
             'success': True,
             'message': 'Added to cart!',
             'count': total_items,
             'quantity': cart[item_id]
         })
+        
     except Exception as e:
         print(f"Error adding to cart: {e}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'Error: {str(e)}'
+        }), 500
 
 @app.route('/update-cart/<item_id>/<action>', methods=['POST'])
 def update_cart_item(item_id, action):
@@ -615,68 +654,73 @@ def remove_from_cart(item_id):
 
 @app.route('/checkout')
 def checkout_page():
-    cart = get_cart()
-    if not cart:
-        flash('Your cart is empty', 'warning')
-        return redirect(url_for('index'))
-    
-    cart_items = []
-    subtotal = 0
-    total_items = 0
-    products = load_products()
-    bundles = load_bundles()
-    
-    for item_id, quantity in cart.items():
-        if quantity <= 0:
-            continue
+    try:
+        cart = get_cart()
+        if not cart:
+            flash('Your cart is empty', 'warning')
+            return redirect(url_for('index'))
         
-        product = None
-        for p in products:
-            if str(p.get('id')) == str(item_id):
-                product = p
-                break
+        cart_items = []
+        subtotal = 0
+        total_items = 0
+        products = load_products()
+        bundles = load_bundles()
         
-        if product:
-            item_total = product.get('price', 0) * quantity
-            cart_items.append({
-                'id': item_id,
-                'name': product.get('name', 'Product'),
-                'price': product.get('price', 0),
-                'image': product.get('image', ''),
-                'type': 'product',
-                'quantity': quantity,
-                'item_total': item_total
-            })
-            subtotal += item_total
-            total_items += quantity
-            continue
-        
-        for bundle in bundles:
-            if str(bundle.get('id')) == str(item_id):
-                item_total = bundle.get('price', 0) * quantity
+        for item_id, quantity in cart.items():
+            if quantity <= 0:
+                continue
+            
+            product = None
+            for p in products:
+                if str(p.get('id')) == str(item_id):
+                    product = p
+                    break
+            
+            if product:
+                item_total = product.get('price', 0) * quantity
                 cart_items.append({
                     'id': item_id,
-                    'name': bundle.get('name', 'Bundle'),
-                    'price': bundle.get('price', 0),
-                    'image': bundle.get('image', ''),
-                    'type': 'bundle',
+                    'name': product.get('name', 'Product'),
+                    'price': product.get('price', 0),
+                    'image': product.get('image', ''),
+                    'type': 'product',
                     'quantity': quantity,
                     'item_total': item_total
                 })
                 subtotal += item_total
                 total_items += quantity
-                break
-    
-    shipping = 0 if subtotal >= 50000 else 800
-    total = subtotal + shipping
-    
-    return render_template('checkout.html',
-        cart_items=cart_items,
-        subtotal=subtotal,
-        shipping=shipping,
-        total=total,
-        total_items=total_items
-    )
+                continue
+            
+            for bundle in bundles:
+                if str(bundle.get('id')) == str(item_id):
+                    item_total = bundle.get('price', 0) * quantity
+                    cart_items.append({
+                        'id': item_id,
+                        'name': bundle.get('name', 'Bundle'),
+                        'price': bundle.get('price', 0),
+                        'image': bundle.get('image', ''),
+                        'type': 'bundle',
+                        'quantity': quantity,
+                        'item_total': item_total
+                    })
+                    subtotal += item_total
+                    total_items += quantity
+                    break
+        
+        shipping = 0 if subtotal >= 50000 else 800
+        total = subtotal + shipping
+        
+        return render_template('checkout.html',
+            cart_items=cart_items,
+            subtotal=subtotal,
+            shipping=shipping,
+            total=total,
+            total_items=total_items
+        )
+    except Exception as e:
+        print(f"Checkout error: {e}")
+        flash('Error loading checkout', 'danger')
+        return redirect(url_for('index'))
 
 @app.route('/place-order', methods=['POST'])
 def place_order():
@@ -810,23 +854,32 @@ def clear_cart():
 
 @app.route('/api/status')
 def api_status():
-    orders = load_orders()
-    products = load_products()
-    return jsonify({
-        'success': True,
-        'products': len(products),
-        'orders': len(orders),
-        'timestamp': datetime.utcnow().isoformat(),
-        'environment': 'vercel' if IS_VERCEL else 'local'
-    })
+    try:
+        orders = load_orders()
+        products = load_products()
+        return jsonify({
+            'success': True,
+            'products': len(products),
+            'orders': len(orders),
+            'timestamp': datetime.utcnow().isoformat(),
+            'environment': 'vercel' if IS_VERCEL else 'local'
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/products')
 def api_products():
-    return jsonify(load_products())
+    try:
+        return jsonify(load_products())
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/orders')
 def api_orders():
-    return jsonify(load_orders())
+    try:
+        return jsonify(load_orders())
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/cart-count', methods=['GET'])
 def cart_count():
@@ -834,7 +887,7 @@ def cart_count():
         cart = get_cart()
         count = sum(cart.values()) if cart and isinstance(cart, dict) else 0
         return jsonify({'count': count})
-    except:
+    except Exception as e:
         return jsonify({'count': 0})
 
 # ================================================================
@@ -881,7 +934,6 @@ def admin_dashboard():
         web_count = 0
         
         for order in orders:
-            # Parse customer safely
             customer = order.get('customer', {})
             if isinstance(customer, str):
                 try:
@@ -1223,6 +1275,15 @@ def admin_update_order_status(order_id):
 # ===== DEBUG ROUTES =====
 # ================================================================
 
+@app.route('/health')
+def health():
+    """Health check endpoint"""
+    return jsonify({
+        'status': 'ok',
+        'message': 'Server is running',
+        'timestamp': datetime.utcnow().isoformat()
+    })
+
 @app.route('/debug')
 def debug():
     """Check data in Supabase"""
@@ -1231,7 +1292,6 @@ def debug():
         products = load_products()
         bundles = load_bundles()
         
-        # Count customers
         customers = set()
         for order in orders:
             customer = order.get('customer', {})
@@ -1278,26 +1338,28 @@ def test_data():
     except Exception as e:
         return jsonify({'error': str(e)})
 
-@app.route('/raw-orders')
-def raw_orders():
-    """Show raw orders from Supabase"""
-    if not session.get('admin_logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
-    
+@app.route('/test-add-to-cart/<item_id>')
+def test_add_to_cart(item_id):
+    """Test the add to cart functionality"""
     try:
-        response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/orders?select=*&limit=10",
-            headers=SUPABASE_HEADERS,
-            timeout=10
-        )
-        if response.status_code == 200:
-            return jsonify({
-                'count': len(response.json()),
-                'orders': response.json()
-            })
-        return jsonify({'error': f'Status: {response.status_code}'})
+        cart = get_cart()
+        products = load_products()
+        
+        product = None
+        for p in products:
+            if str(p.get('id')) == str(item_id):
+                product = p
+                break
+        
+        return jsonify({
+            'item_id': item_id,
+            'product_found': product is not None,
+            'product': product,
+            'current_cart': cart,
+            'session_cart': session.get('cart', {})
+        })
     except Exception as e:
-        return jsonify({'error': str(e)})
+        return jsonify({'error': str(e)}), 500
 
 # ================================================================
 # ===== RUN APP =====
@@ -1309,7 +1371,6 @@ if __name__ == '__main__':
     print("="*60)
     print(f"🌍 Environment: {'Vercel' if IS_VERCEL else 'Local'}")
     
-    # Test data loading
     orders = load_orders()
     products = load_products()
     print(f"\n📊 Products: {len(products) if products else 0}")
