@@ -45,50 +45,43 @@ app.static_folder = STATIC_FOLDER
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def get_json_path(filename):
-    """Get the correct path for JSON files"""
-    return os.path.join(JSON_FOLDER, filename)
+# ================================================================
+# ===== VERCEL BLOB STORAGE =====
+# ================================================================
 
-# ===== SUPABASE CONFIGURATION =====
-SUPABASE_URL = "https://hzqrdwerkgfmfaufabjr.supabase.co"
-SUPABASE_KEY = "sb_publishable_tnBOmCO7EFfIoXfNjEH_Tg_D7WX-zld"
-
-SUPABASE_HEADERS = {
-    "apikey": SUPABASE_KEY,
-    "Authorization": f"Bearer {SUPABASE_KEY}",
-    "Content-Type": "application/json",
-    "Prefer": "return=representation"
-}
-
-# ===== DATABASE CONNECTION =====
-DB_CONNECTED = False
-DB_TYPE = 'json'
-
-def test_supabase_connection():
-    try:
-        response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/products?select=count",
-            headers=SUPABASE_HEADERS,
-            timeout=5
-        )
-        return response.status_code == 200
-    except:
-        return False
+USE_BLOB = False
+BLOB_STORE = None
 
 try:
-    if test_supabase_connection():
-        DB_CONNECTED = True
-        DB_TYPE = 'supabase'
-        print("✅ Supabase connected!")
-    else:
-        print("⚠️ Supabase connection failed - using JSON storage (OFFLINE MODE)")
+    # Try to import Vercel Blob Storage
+    from vercel_blob import BlobStore
+    BLOB_STORE = BlobStore()
+    USE_BLOB = True
+    print("✅ Vercel Blob Storage enabled!")
+except ImportError:
+    print("⚠️ Vercel Blob not available - using local storage")
 except Exception as e:
-    print(f"⚠️ Supabase error: {e}")
-    print("📁 OFFLINE MODE - Using JSON storage")
+    print(f"⚠️ Error initializing Blob: {e}")
 
-# ===== JSON FALLBACK - FIXED FOR VERCEL & OFFLINE =====
+def get_json_path(filename):
+    """Get the correct path for JSON files"""
+    if USE_BLOB:
+        return filename  # Blob uses filename directly
+    return os.path.join(JSON_FOLDER, filename)
+
 def load_json(file_path):
+    """Load JSON from Blob or local file"""
     try:
+        # Try Blob first if available
+        if USE_BLOB and BLOB_STORE:
+            try:
+                data = BLOB_STORE.get(file_path)
+                if data:
+                    return json.loads(data)
+            except Exception as e:
+                print(f"Blob read error for {file_path}: {e}")
+        
+        # Fallback to local file
         full_path = get_json_path(file_path)
         if os.path.exists(full_path):
             with open(full_path, 'r') as f:
@@ -158,27 +151,77 @@ def load_json(file_path):
                     "specs": ["Active Noise Cancellation", "Spatial Audio"]
                 }
             ]
-            with open(full_path, 'w') as f:
-                json.dump(sample_products, f, indent=2)
+            save_json(file_path, sample_products)
             return sample_products
         
         # Create empty file for others
-        with open(full_path, 'w') as f:
-            json.dump([], f)
+        save_json(file_path, [])
         return []
     except Exception as e:
         print(f"Error loading {file_path}: {e}")
         return []
 
 def save_json(file_path, data):
+    """Save JSON to Blob or local file"""
     try:
+        # Try Blob first if available
+        if USE_BLOB and BLOB_STORE:
+            try:
+                BLOB_STORE.put(file_path, json.dumps(data))
+                print(f"✅ Saved to Blob: {file_path}")
+                return True
+            except Exception as e:
+                print(f"Blob write error for {file_path}: {e}")
+        
+        # Fallback to local file
         full_path = get_json_path(file_path)
         with open(full_path, 'w') as f:
             json.dump(data, f, indent=2)
+        print(f"✅ Saved to local: {file_path}")
         return True
     except Exception as e:
         print(f"Error saving {file_path}: {e}")
         return False
+
+# ================================================================
+# ===== SUPABASE CONFIGURATION =====
+# ================================================================
+
+SUPABASE_URL = os.environ.get('SUPABASE_URL', "https://hzqrdwerkgfmfaufabjr.supabase.co")
+SUPABASE_KEY = os.environ.get('SUPABASE_KEY', "sb_publishable_tnBOmCO7EFfIoXfNjEH_Tg_D7WX-zld")
+
+SUPABASE_HEADERS = {
+    "apikey": SUPABASE_KEY,
+    "Authorization": f"Bearer {SUPABASE_KEY}",
+    "Content-Type": "application/json",
+    "Prefer": "return=representation"
+}
+
+# ===== DATABASE CONNECTION =====
+DB_CONNECTED = False
+DB_TYPE = 'json'
+
+def test_supabase_connection():
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/products?select=count",
+            headers=SUPABASE_HEADERS,
+            timeout=5
+        )
+        return response.status_code == 200
+    except:
+        return False
+
+try:
+    if test_supabase_connection():
+        DB_CONNECTED = True
+        DB_TYPE = 'supabase'
+        print("✅ Supabase connected!")
+    else:
+        print("⚠️ Supabase connection failed - using JSON storage (OFFLINE MODE)")
+except Exception as e:
+    print(f"⚠️ Supabase error: {e}")
+    print("📁 OFFLINE MODE - Using JSON storage")
 
 # ================================================================
 # ===== DATABASE FUNCTIONS =====
@@ -196,7 +239,7 @@ def load_products():
             if response.status_code == 200:
                 data = response.json()
                 if isinstance(data, list):
-                    save_json('products.json', data)
+                    save_json('products.json', data)  # Backup to Blob/local
                     return data
                 if isinstance(data, dict) and 'items' in data:
                     save_json('products.json', data['items'])
@@ -205,6 +248,7 @@ def load_products():
         except Exception as e:
             print(f"Error loading products from Supabase: {e}")
     
+    # Fallback to JSON (Blob or local)
     return load_json('products.json')
 
 def load_product_by_id(product_id):
@@ -310,6 +354,7 @@ def save_product_to_db(product_data):
                 )
             print(f"✅ Product saved to Supabase: {product_copy.get('id')}")
             
+            # Also save to Blob/local as backup
             products = load_products()
             found = False
             for p in products:
@@ -380,6 +425,7 @@ def load_orders():
     if not isinstance(json_orders, list):
         json_orders = []
 
+    # Merge orders
     merged = {}
     for order in json_orders:
         oid = order.get('order_id')
@@ -396,6 +442,7 @@ def load_orders():
 
 def save_order_to_db(order_data):
     """Save order to Supabase and JSON backup"""
+    # Always save to Blob/local first (works offline)
     json_saved = save_order_to_json(order_data)
 
     if DB_CONNECTED:
@@ -421,7 +468,7 @@ def save_order_to_db(order_data):
         return json_saved
 
 def save_order_to_json(order_data):
-    """Save order to JSON file - WORKS OFFLINE"""
+    """Save order to JSON file - WORKS OFFLINE + BLOB"""
     try:
         orders = load_json('orders.json')
         if not isinstance(orders, list):
@@ -431,10 +478,10 @@ def save_order_to_json(order_data):
         orders.insert(0, order_data)
         
         save_json('orders.json', orders)
-        print(f"✅ Order saved to JSON: {order_data.get('order_id')}")
+        print(f"✅ Order saved to JSON/Blob: {order_data.get('order_id')}")
         return True
     except Exception as e:
-        print(f"❌ Failed to save order to JSON: {e}")
+        print(f"❌ Failed to save order: {e}")
         return False
 
 # ================================================================
@@ -1144,7 +1191,8 @@ def api_status():
         'orders': len(load_orders()),
         'timestamp': datetime.utcnow().isoformat(),
         'environment': 'vercel' if IS_VERCEL else 'local',
-        'mode': 'online' if DB_CONNECTED else 'offline'
+        'mode': 'online' if DB_CONNECTED else 'offline',
+        'blob_storage': USE_BLOB
     })
 
 @app.route('/api/products')
@@ -1190,7 +1238,8 @@ def test_order_api():
         'success': result,
         'order': test_order,
         'db_connected': DB_CONNECTED,
-        'db_type': DB_TYPE
+        'db_type': DB_TYPE,
+        'blob_storage': USE_BLOB
     })
 
 # ================================================================
@@ -1280,7 +1329,8 @@ def admin_dashboard():
             'total_profit': analytics.get('total_profit', 0),
             'total_items_sold': analytics.get('total_items_sold', 0),
             'total_customers': len(customers),
-            'db_mode': 'online' if DB_CONNECTED else 'offline'
+            'db_mode': 'online' if DB_CONNECTED else 'offline',
+            'blob_storage': USE_BLOB
         }
         
         return render_template('admin.html',
@@ -1318,7 +1368,8 @@ def admin_dashboard():
                 'total_profit': 0,
                 'total_items_sold': 0,
                 'total_customers': 0,
-                'db_mode': 'offline'
+                'db_mode': 'offline',
+                'blob_storage': False
             },
             DB_CONNECTED=DB_CONNECTED
         )
@@ -1360,7 +1411,7 @@ def admin_pos():
 
 @app.route('/admin/pos/place-order', methods=['POST'])
 def admin_pos_place_order():
-    """Place order from POS system - WORKS OFFLINE"""
+    """Place order from POS system - WORKS OFFLINE + BLOB"""
     if not session.get('admin_logged_in'):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 401
     
@@ -1597,7 +1648,8 @@ def export_local_data():
         'products': load_json('products.json'),
         'orders': load_json('orders.json'),
         'bundles': load_json('bundles.json'),
-        'analytics': get_sales_analytics()
+        'analytics': get_sales_analytics(),
+        'blob_storage': USE_BLOB
     }
     
     return jsonify(data)
@@ -1668,7 +1720,8 @@ def import_data():
             'success': True,
             'message': ' | '.join(messages),
             'products': len(data.get('products', [])),
-            'orders': len(data.get('orders', []))
+            'orders': len(data.get('orders', [])),
+            'blob_storage': USE_BLOB
         })
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1713,6 +1766,7 @@ def import_page():
             .badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
             .badge-success { background: #dcfce7; color: #166534; }
             .badge-info { background: #dbeafe; color: #1e40af; }
+            .badge-warning { background: #fef3c7; color: #92400e; }
         </style>
     </head>
     <body>
@@ -1732,7 +1786,14 @@ def import_page():
                             {% if DB_CONNECTED %}
                             <span class="badge badge-success">🟢 Online</span>
                             {% else %}
-                            <span class="badge badge-info">🔴 Offline</span>
+                            <span class="badge badge-warning">🔴 Offline</span>
+                            {% endif %}
+                        </p>
+                        <p><strong>Blob Storage:</strong> 
+                            {% if blob_storage %}
+                            <span class="badge badge-success">✅ Enabled</span>
+                            {% else %}
+                            <span class="badge badge-warning">⚠️ Disabled</span>
                             {% endif %}
                         </p>
                         <p><strong>Revenue:</strong> KSh {{ analytics.total_revenue|default(0)|int }}</p>
@@ -1745,14 +1806,9 @@ def import_page():
                 <ol>
                     <li>Go to your <strong>local</strong> Price Point at <code>http://localhost:5000/export-local-data</code></li>
                     <li>Copy the entire JSON response</li>
-                    <li>Or paste your <code>products.json</code> and <code>orders.json</code> content below</li>
                 </ol>
                 <div class="code-block"># On your local machine, visit:
-http://localhost:5000/export-local-data
-
-# Or view your JSON files:
-cat products.json
-cat orders.json</div>
+http://localhost:5000/export-local-data</div>
             </div>
             
             <div class="step">
@@ -1774,7 +1830,7 @@ cat orders.json</div>
                 <h3>Step 3: Or use the API directly</h3>
                 <div class="code-block">curl -X POST {{ request.host_url }}import-data \
   -H "Content-Type: application/json" \
-  -d '{"products": [...], "orders": [...]}'</div>
+  -d @data.json</div>
             </div>
             
             <div class="flex">
@@ -1784,7 +1840,13 @@ cat orders.json</div>
         </div>
     </body>
     </html>
-    ''', products=load_products(), orders=load_orders(), analytics=get_sales_analytics(), DB_CONNECTED=DB_CONNECTED)
+    ''', 
+    products=load_products(), 
+    orders=load_orders(), 
+    analytics=get_sales_analytics(), 
+    DB_CONNECTED=DB_CONNECTED,
+    blob_storage=USE_BLOB
+    )
 
 # ================================================================
 # ===== DEBUG ROUTE =====
@@ -1797,6 +1859,7 @@ def debug():
     return jsonify({
         'is_vercel': IS_VERCEL,
         'json_folder': JSON_FOLDER,
+        'blob_storage': USE_BLOB,
         'files_in_json_folder': os.listdir(JSON_FOLDER) if os.path.exists(JSON_FOLDER) else [],
         'orders_json_exists': os.path.exists(get_json_path('orders.json')),
         'products_json_exists': os.path.exists(get_json_path('products.json')),
@@ -1817,6 +1880,7 @@ if __name__ == '__main__':
     print(f"🔗 Connected: {'✅ YES' if DB_CONNECTED else '❌ NO (OFFLINE MODE)'}")
     print(f"🌍 Environment: {'Vercel' if IS_VERCEL else 'Local'}")
     print(f"📁 JSON Folder: {JSON_FOLDER}")
+    print(f"💾 Blob Storage: {'✅ ENABLED' if USE_BLOB else '❌ DISABLED'}")
     print("💰 Prices in Kenyan Shillings (KES)")
     print("="*60)
     
