@@ -8,7 +8,7 @@ import traceback
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
-application = app
+application = app  # CRITICAL for Vercel
 app.secret_key = 'allison-electronics-secret-2026'
 app.permanent_session_lifetime = timedelta(days=7)
 
@@ -51,25 +51,23 @@ SUPABASE_HEADERS = {
 }
 
 # ================================================================
-# ===== DIRECT DATA LOADING =====
+# ===== DATA FUNCTIONS - ALL WRITES GO TO SUPABASE =====
 # ================================================================
 
 def load_orders():
     """Load orders from Supabase"""
     try:
-        print("📤 Loading orders from Supabase...")
         response = requests.get(
             f"{SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc",
             headers=SUPABASE_HEADERS,
             timeout=10
         )
-        
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list):
                 print(f"✅ Loaded {len(data)} orders")
                 return data
-        print(f"⚠️ Orders API returned: {response.status_code}")
+        print(f"⚠️ Orders API: {response.status_code}")
         return []
     except Exception as e:
         print(f"❌ Error loading orders: {e}")
@@ -78,19 +76,17 @@ def load_orders():
 def load_products():
     """Load products from Supabase"""
     try:
-        print("📤 Loading products from Supabase...")
         response = requests.get(
             f"{SUPABASE_URL}/rest/v1/products?select=*",
             headers=SUPABASE_HEADERS,
             timeout=10
         )
-        
         if response.status_code == 200:
             data = response.json()
             if isinstance(data, list):
                 print(f"✅ Loaded {len(data)} products")
                 return data
-        print(f"⚠️ Products API returned: {response.status_code}")
+        print(f"⚠️ Products API: {response.status_code}")
         return []
     except Exception as e:
         print(f"❌ Error loading products: {e}")
@@ -111,6 +107,76 @@ def load_bundles():
         return []
     except:
         return []
+
+def save_order_to_supabase(order_data):
+    """Save order to Supabase - PRIMARY STORAGE"""
+    try:
+        import json as json_module
+        
+        supabase_order = {
+            'order_id': order_data.get('order_id'),
+            'items': json_module.dumps(order_data.get('items', [])),
+            'subtotal': order_data.get('subtotal', 0),
+            'shipping': order_data.get('shipping', 0),
+            'total': order_data.get('total', 0),
+            'status': order_data.get('status', 'pending'),
+            'source': order_data.get('source', 'web'),
+            'created_at': order_data.get('created_at', datetime.utcnow().isoformat()),
+            'customer': json_module.dumps(order_data.get('customer', {}))
+        }
+        
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/orders",
+            headers=SUPABASE_HEADERS,
+            json=supabase_order,
+            timeout=10
+        )
+        
+        if response.status_code in [200, 201, 204]:
+            print(f"✅ Order saved to Supabase: {order_data.get('order_id')}")
+            return True
+        else:
+            print(f"❌ Failed to save order: {response.status_code}")
+            print(f"❌ Response: {response.text}")
+            return False
+    except Exception as e:
+        print(f"❌ Error saving order: {e}")
+        return False
+
+def save_product_to_supabase(product_data):
+    """Save product to Supabase"""
+    try:
+        response = requests.post(
+            f"{SUPABASE_URL}/rest/v1/products",
+            headers=SUPABASE_HEADERS,
+            json=product_data,
+            timeout=5
+        )
+        if response.status_code in [200, 201]:
+            print(f"✅ Product saved to Supabase: {product_data.get('name')}")
+            return True
+        print(f"❌ Failed to save product: {response.status_code}")
+        return False
+    except Exception as e:
+        print(f"❌ Error saving product: {e}")
+        return False
+
+def update_product_stock(product_id, new_stock):
+    """Update product stock in Supabase"""
+    try:
+        response = requests.patch(
+            f"{SUPABASE_URL}/rest/v1/products?id=eq.{product_id}",
+            headers=SUPABASE_HEADERS,
+            json={'stock': new_stock},
+            timeout=5
+        )
+        if response.status_code in [200, 204]:
+            print(f"✅ Stock updated for product {product_id}")
+            return True
+        return False
+    except Exception as e:
+        print(f"❌ Error updating stock: {e}")
+        return False
 
 def get_cart():
     cart = session.get('cart', {})
@@ -154,9 +220,6 @@ def get_sales_analytics():
         total_items_sold = 0
         pos_orders_count = 0
         web_orders_count = 0
-        
-        monthly_data = {}
-        product_sales = {}
         customer_data = {}
         
         for order in orders:
@@ -195,25 +258,6 @@ def get_sales_analytics():
             customer_data[customer_name]['orders'] += 1
             customer_data[customer_name]['total_spent'] += order.get('total', 0)
             
-            order_date = order.get('created_at', '')[:7]
-            if order_date and order_date not in monthly_data:
-                monthly_data[order_date] = {
-                    'revenue': 0,
-                    'cost': 0,
-                    'profit': 0,
-                    'orders': 0,
-                    'items': 0,
-                    'pos_orders': 0,
-                    'web_orders': 0
-                }
-            
-            if order_date:
-                monthly_data[order_date]['orders'] += 1
-                if source == 'pos':
-                    monthly_data[order_date]['pos_orders'] += 1
-                else:
-                    monthly_data[order_date]['web_orders'] += 1
-            
             for item in items:
                 product_id = str(item.get('product_id', ''))
                 quantity = item.get('quantity', 1)
@@ -228,25 +272,6 @@ def get_sales_analytics():
                 total_cost += item_cost
                 total_profit += (item_total - item_cost)
                 total_items_sold += quantity
-                
-                if order_date:
-                    monthly_data[order_date]['revenue'] += item_total
-                    monthly_data[order_date]['cost'] += item_cost
-                    monthly_data[order_date]['profit'] += (item_total - item_cost)
-                    monthly_data[order_date]['items'] += quantity
-                
-                product_name = item.get('name', 'Unknown')
-                if product_name not in product_sales:
-                    product_sales[product_name] = {
-                        'quantity': 0,
-                        'revenue': 0,
-                        'cost': 0,
-                        'profit': 0
-                    }
-                product_sales[product_name]['quantity'] += quantity
-                product_sales[product_name]['revenue'] += item_total
-                product_sales[product_name]['cost'] += item_cost
-                product_sales[product_name]['profit'] += (item_total - item_cost)
         
         return {
             'total_revenue': total_revenue,
@@ -257,14 +282,12 @@ def get_sales_analytics():
             'pos_orders_count': pos_orders_count,
             'web_orders_count': web_orders_count,
             'total_customers': len(customer_data),
-            'monthly_data': monthly_data,
-            'product_sales': dict(sorted(product_sales.items(), key=lambda x: x[1]['profit'], reverse=True)[:10]),
-            'all_product_sales': product_sales,
+            'monthly_data': {},
+            'product_sales': {},
             'customer_data': customer_data
         }
     except Exception as e:
-        print(f"❌ Error in get_sales_analytics: {e}")
-        traceback.print_exc()
+        print(f"❌ Error in analytics: {e}")
         return {
             'total_revenue': 0,
             'total_cost': 0,
@@ -276,7 +299,6 @@ def get_sales_analytics():
             'total_customers': 0,
             'monthly_data': {},
             'product_sales': {},
-            'all_product_sales': {},
             'customer_data': {}
         }
 
@@ -698,6 +720,13 @@ def place_order():
             item_found = False
             for p in products:
                 if str(p.get('id')) == str(item_id):
+                    current_stock = p.get('stock', 0)
+                    if current_stock < quantity:
+                        return jsonify({
+                            'success': False,
+                            'message': f'Not enough stock for {p.get("name")}. Available: {current_stock}'
+                        }), 400
+                    
                     item_total = p.get('price', 0) * quantity
                     subtotal += item_total
                     order_items.append({
@@ -709,6 +738,10 @@ def place_order():
                         'type': 'product'
                     })
                     item_found = True
+                    
+                    # Update stock in Supabase
+                    new_stock = max(0, current_stock - quantity)
+                    update_product_stock(item_id, new_stock)
                     break
             
             if not item_found:
@@ -757,27 +790,7 @@ def place_order():
         }
         
         # Save to Supabase
-        import json as json_module
-        supabase_order = {
-            'order_id': order_data.get('order_id'),
-            'items': json_module.dumps(order_data.get('items', [])),
-            'subtotal': order_data.get('subtotal', 0),
-            'shipping': order_data.get('shipping', 0),
-            'total': order_data.get('total', 0),
-            'status': order_data.get('status', 'pending'),
-            'source': order_data.get('source', 'web'),
-            'created_at': order_data.get('created_at', datetime.utcnow().isoformat()),
-            'customer': json_module.dumps(order_data.get('customer', {}))
-        }
-        
-        response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/orders",
-            headers=SUPABASE_HEADERS,
-            json=supabase_order,
-            timeout=10
-        )
-        
-        if response.status_code in [200, 201, 204]:
+        if save_order_to_supabase(order_data):
             session['cart'] = {}
             session.modified = True
             
@@ -870,14 +883,12 @@ def admin_dashboard():
         return redirect(url_for('admin_login'))
     
     try:
-        # Load data
         products = load_products()
         orders = load_orders()
         bundles = load_bundles()
         cart = get_cart()
         analytics = get_sales_analytics()
         
-        # Build customer list
         customer_list = {}
         pos_count = 0
         web_count = 0
@@ -910,13 +921,6 @@ def admin_dashboard():
         
         customers = list(customer_list.values())
         customers.sort(key=lambda x: x['orders'], reverse=True)
-        
-        # Debug output
-        print(f"📊 DASHBOARD DATA:")
-        print(f"  Products: {len(products)}")
-        print(f"  Orders: {len(orders)}")
-        print(f"  Customers: {len(customers)}")
-        print(f"  Revenue: {analytics.get('total_revenue', 0)}")
         
         stats = {
             'total_products': len(products),
@@ -1029,6 +1033,24 @@ def admin_pos_place_order():
         
         order_id = f"POS-{uuid.uuid4().hex[:8].upper()}"
         
+        # Update stock for products
+        products = load_products()
+        product_lookup = {str(p.get('id')): p for p in products}
+        
+        for item in data.get('items', []):
+            product_id = str(item.get('product_id'))
+            quantity = item.get('quantity', 1)
+            product = product_lookup.get(product_id)
+            if product:
+                current_stock = product.get('stock', 0)
+                if current_stock < quantity:
+                    return jsonify({
+                        'success': False,
+                        'message': f'Not enough stock for {product.get("name")}. Available: {current_stock}'
+                    }), 400
+                new_stock = max(0, current_stock - quantity)
+                update_product_stock(product_id, new_stock)
+        
         order_data = {
             'order_id': order_id,
             'items': data.get('items', []),
@@ -1046,46 +1068,25 @@ def admin_pos_place_order():
             }
         }
         
-        # Save to Supabase
-        import json as json_module
-        supabase_order = {
-            'order_id': order_data.get('order_id'),
-            'items': json_module.dumps(order_data.get('items', [])),
-            'subtotal': order_data.get('subtotal', 0),
-            'shipping': order_data.get('shipping', 0),
-            'total': order_data.get('total', 0),
-            'status': order_data.get('status', 'confirmed'),
-            'source': order_data.get('source', 'pos'),
-            'created_at': order_data.get('created_at', datetime.utcnow().isoformat()),
-            'customer': json_module.dumps(order_data.get('customer', {}))
-        }
-        
-        response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/orders",
-            headers=SUPABASE_HEADERS,
-            json=supabase_order,
-            timeout=10
-        )
-        
-        if response.status_code not in [200, 201, 204]:
+        if save_order_to_supabase(order_data):
+            analytics = get_sales_analytics()
+            
+            return jsonify({
+                'success': True,
+                'order_id': order_id,
+                'message': 'Order placed successfully!',
+                'analytics': analytics,
+                'stats': {
+                    'total_revenue': analytics.get('total_revenue', 0),
+                    'total_profit': analytics.get('total_profit', 0),
+                    'total_orders': analytics.get('total_orders', 0),
+                    'total_items_sold': analytics.get('total_items_sold', 0),
+                    'pos_orders_count': analytics.get('pos_orders_count', 0),
+                    'web_orders_count': analytics.get('web_orders_count', 0)
+                }
+            })
+        else:
             return jsonify({'success': False, 'message': 'Failed to save order'}), 500
-        
-        analytics = get_sales_analytics()
-        
-        return jsonify({
-            'success': True,
-            'order_id': order_id,
-            'message': 'Order placed successfully!',
-            'analytics': analytics,
-            'stats': {
-                'total_revenue': analytics.get('total_revenue', 0),
-                'total_profit': analytics.get('total_profit', 0),
-                'total_orders': analytics.get('total_orders', 0),
-                'total_items_sold': analytics.get('total_items_sold', 0),
-                'pos_orders_count': analytics.get('pos_orders_count', 0),
-                'web_orders_count': analytics.get('web_orders_count', 0)
-            }
-        })
             
     except Exception as e:
         print(f"❌ POS Order error: {e}")
@@ -1167,15 +1168,7 @@ def admin_products():
             'specs': request.form.get('specs', '').split(',') if request.form.get('specs') else []
         }
         
-        # Save to Supabase
-        response = requests.post(
-            f"{SUPABASE_URL}/rest/v1/products",
-            headers=SUPABASE_HEADERS,
-            json=product_data,
-            timeout=5
-        )
-        
-        if response.status_code in [200, 201]:
+        if save_product_to_supabase(product_data):
             return jsonify({'success': True, 'message': 'Product saved successfully!', 'product': product_data})
         else:
             return jsonify({'success': False, 'message': 'Error saving product'}), 500
@@ -1237,7 +1230,8 @@ def debug():
             'products_count': len(products),
             'sample_order': orders[0] if orders else None,
             'sample_product': products[0] if products else None,
-            'is_vercel': IS_VERCEL
+            'is_vercel': IS_VERCEL,
+            'supabase_url': SUPABASE_URL
         })
     except Exception as e:
         return jsonify({'error': str(e)})
