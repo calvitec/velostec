@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template, session, redirect, url_for, flash
+from flask import Flask, request, jsonify, render_template, session, redirect, url_for, flash, Response
 from datetime import datetime, timedelta
 import os
 import uuid
@@ -22,9 +22,11 @@ IS_VERCEL = 'VERCEL' in os.environ or 'NOW' in os.environ
 if IS_VERCEL:
     UPLOAD_FOLDER = '/tmp/static/uploads'
     STATIC_FOLDER = '/tmp/static'
+    JSON_FOLDER = '/tmp'  # <-- KEY FIX: Use /tmp for JSON files on Vercel
 else:
     UPLOAD_FOLDER = 'static/uploads'
     STATIC_FOLDER = 'static'
+    JSON_FOLDER = '.'
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 MAX_CONTENT_LENGTH = 5 * 1024 * 1024  # 5MB max file size
@@ -42,6 +44,10 @@ app.static_folder = STATIC_FOLDER
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_json_path(filename):
+    """Get the correct path for JSON files - /tmp on Vercel, current dir locally"""
+    return os.path.join(JSON_FOLDER, filename)
 
 # ===== SUPABASE CONFIGURATION =====
 SUPABASE_URL = "https://hzqrdwerkgfmfaufabjr.supabase.co"
@@ -80,22 +86,29 @@ except Exception as e:
     print(f"⚠️ Supabase error: {e}")
     print("📁 Using JSON storage")
 
-# ===== JSON FALLBACK =====
+# ===== JSON FALLBACK - FIXED FOR VERCEL =====
 def load_json(file_path):
     try:
-        if os.path.exists(file_path):
-            with open(file_path, 'r') as f:
+        full_path = get_json_path(file_path)
+        if os.path.exists(full_path):
+            with open(full_path, 'r') as f:
                 return json.load(f)
+        # Create empty file
+        with open(full_path, 'w') as f:
+            json.dump([], f)
         return []
-    except:
+    except Exception as e:
+        print(f"Error loading {file_path}: {e}")
         return []
 
 def save_json(file_path, data):
     try:
-        with open(file_path, 'w') as f:
+        full_path = get_json_path(file_path)
+        with open(full_path, 'w') as f:
             json.dump(data, f, indent=2)
         return True
-    except:
+    except Exception as e:
+        print(f"Error saving {file_path}: {e}")
         return False
 
 # ================================================================
@@ -143,7 +156,7 @@ def load_product_by_id(product_id):
                     return data[0]
         except:
             pass
-    products = load_json('products.json')
+    products = load_products()
     for product in products:
         if str(product.get('id')) == str(product_id):
             return product
@@ -162,7 +175,7 @@ def load_products_by_category(category):
                 return response.json()
         except:
             pass
-    products = load_json('products.json')
+    products = load_products()
     return [p for p in products if p.get('category') == category]
 
 def load_bundles():
@@ -234,7 +247,7 @@ def save_product_to_db(product_data):
                 )
             print(f"✅ Product saved to Supabase: {product_copy.get('id')}")
             
-            products = load_json('products.json')
+            products = load_products()
             found = False
             for p in products:
                 if str(p.get('id')) == str(product_copy.get('id')):
@@ -254,7 +267,7 @@ def save_product_to_db(product_data):
 
 def save_product_to_json_only(product_data):
     """Save product to JSON file only (fallback)"""
-    products = load_json('products.json')
+    products = load_products()
     found = False
     for p in products:
         if str(p.get('id')) == str(product_data.get('id')):
@@ -285,14 +298,6 @@ def update_product_stock(product_id, quantity):
 def load_orders():
     """
     Load all orders, merging Supabase and the local JSON backup.
-
-    Why merge: save_order_to_db() always writes a JSON backup (see below),
-    but it only ALSO writes to Supabase if the DB is connected AND the
-    insert succeeds. If a POS/web order fails to insert into Supabase
-    (e.g. schema mismatch) it used to silently exist only in JSON, while
-    this function - when DB_CONNECTED - only ever read from Supabase.
-    That's why new orders (like ones added from the POS) sometimes did
-    not show up in /admin's analytics. Merging both sources fixes it.
     """
     supabase_orders = []
     if DB_CONNECTED:
@@ -314,10 +319,6 @@ def load_orders():
     if not isinstance(json_orders, list):
         json_orders = []
 
-    # Merge, de-duplicating by order_id. Supabase copy wins if both exist,
-    # since it's the "source of truth" once a save there succeeds - but any
-    # order that ONLY exists in the JSON backup (e.g. POS order that failed
-    # to reach Supabase) still gets included so analytics stay accurate.
     merged = {}
     for order in json_orders:
         oid = order.get('order_id')
@@ -334,9 +335,7 @@ def load_orders():
 
 def save_order_to_db(order_data):
     """
-    Save order to Supabase (if connected) AND always to the local JSON
-    backup, so load_orders() can never "lose" an order that was placed
-    (e.g. a POS sale) even if the Supabase write fails.
+    Save order to Supabase (if connected) AND always to the local JSON backup.
     """
     json_saved = save_order_to_json(order_data)
 
@@ -363,24 +362,16 @@ def save_order_to_db(order_data):
         return json_saved
 
 def save_order_to_json(order_data):
-    """Save order to JSON file (used as backup on every order, not just fallback)"""
+    """Save order to JSON file (used as backup on every order)"""
     try:
-        orders = []
-        if os.path.exists('orders.json'):
-            with open('orders.json', 'r') as f:
-                try:
-                    orders = json.load(f)
-                    if not isinstance(orders, list):
-                        orders = []
-                except:
-                    orders = []
+        orders = load_json('orders.json')
+        if not isinstance(orders, list):
+            orders = []
         
-        # Avoid duplicate entries if this order_id was already saved
         orders = [o for o in orders if o.get('order_id') != order_data.get('order_id')]
         orders.insert(0, order_data)
         
-        with open('orders.json', 'w') as f:
-            json.dump(orders, f, indent=2)
+        save_json('orders.json', orders)
         
         print(f"✅ Order saved to JSON: {order_data.get('order_id')}")
         return True
@@ -1307,12 +1298,6 @@ def admin_pos():
 def admin_pos_place_order():
     """
     Place order from POS system.
-
-    Now: (1) validates stock like the web checkout does, (2) recomputes
-    analytics right after saving the order + updating stock, and
-    (3) returns that fresh analytics payload in the JSON response so the
-    admin panel can update its numbers immediately (no full page reload
-    needed) as soon as a POS sale is completed.
     """
     if not session.get('admin_logged_in'):
         return jsonify({'success': False, 'message': 'Unauthorized'}), 401
@@ -1372,13 +1357,10 @@ def admin_pos_place_order():
         if not save_order_to_db(order_data):
             return jsonify({'success': False, 'message': 'Failed to save order'}), 500
 
-        # Update stock for every product sold in this POS order
         for updated_product in products_to_update:
             save_product_to_db(updated_product)
             print(f"✅ Stock updated: {updated_product.get('name')} → {updated_product.get('stock')}")
 
-        # Recompute analytics now that the order + stock changes are saved,
-        # and send it straight back so the admin panel can refresh live.
         analytics = get_sales_analytics()
 
         return jsonify({
@@ -1403,7 +1385,7 @@ def admin_pos_place_order():
 
 @app.route('/admin/api/analytics')
 def admin_api_analytics():
-    """API endpoint for sales analytics - always recomputed fresh from load_orders()"""
+    """API endpoint for sales analytics"""
     if not session.get('admin_logged_in'):
         return jsonify({'error': 'Unauthorized'}), 401
     
@@ -1477,7 +1459,7 @@ def admin_delete_product(product_id):
             if response.status_code in [200, 204]:
                 return jsonify({'success': True})
         else:
-            products = load_json('products.json')
+            products = load_products()
             if isinstance(products, list):
                 products = [p for p in products if str(p.get('id')) != str(product_id)]
             else:
@@ -1506,8 +1488,7 @@ def admin_update_order_status(order_id):
                 timeout=10
             )
             if response.status_code in [200, 204]:
-                # Keep the JSON backup in sync too
-                orders = load_json('orders.json')
+                orders = load_orders()
                 if isinstance(orders, list):
                     for order in orders:
                         if order.get('order_id') == order_id:
@@ -1516,14 +1497,12 @@ def admin_update_order_status(order_id):
                     save_json('orders.json', orders)
                 return jsonify({'success': True})
         else:
-            orders = load_json('orders.json')
+            orders = load_orders()
             if isinstance(orders, list):
                 for order in orders:
                     if order.get('order_id') == order_id:
                         order['status'] = new_status
                         break
-            else:
-                orders = []
             save_json('orders.json', orders)
             return jsonify({'success': True})
         
@@ -1542,6 +1521,22 @@ def cart_count():
         return jsonify({'count': 0})
 
 # ================================================================
+# ===== DEBUG ROUTE =====
+# ================================================================
+
+@app.route('/debug')
+def debug():
+    """Debug endpoint to check file system"""
+    import os
+    return jsonify({
+        'is_vercel': IS_VERCEL,
+        'json_folder': JSON_FOLDER,
+        'files_in_json_folder': os.listdir(JSON_FOLDER) if os.path.exists(JSON_FOLDER) else [],
+        'orders_json_exists': os.path.exists(get_json_path('orders.json')),
+        'cwd': os.getcwd()
+    })
+
+# ================================================================
 # ===== RUN APP =====
 # ================================================================
 
@@ -1552,9 +1547,8 @@ if __name__ == '__main__':
     print(f"📁 Database: {DB_TYPE}")
     print(f"🔗 Connected: {'✅ YES' if DB_CONNECTED else '❌ NO'}")
     print(f"🌍 Environment: {'Vercel' if IS_VERCEL else 'Local'}")
+    print(f"📁 JSON Folder: {JSON_FOLDER}")
     print("💰 Prices in Kenyan Shillings (KES)")
-    print("📷 Image Upload: Enabled")
-    print("📊 Revenue Analytics: Enabled")
     print("="*60)
     
     products = load_products()
