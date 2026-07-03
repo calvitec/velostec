@@ -432,7 +432,7 @@ def cart_page():
         products = load_products()
         bundles = load_bundles()
         
-        # Create lookups for faster access
+        # Create lookups
         product_lookup = {str(p.get('id')): p for p in products if p and p.get('id')}
         bundle_lookup = {str(b.get('id')): b for b in bundles if b and b.get('id')}
         
@@ -440,35 +440,37 @@ def cart_page():
             if quantity <= 0:
                 continue
             
+            # Check if it's a product
             product = product_lookup.get(str(item_id))
             if product:
-                price = product.get('price', 0)
+                price = float(product.get('price', 0))
                 item_total = price * quantity
                 cart_items.append({
-                    'id': item_id,
-                    'name': product.get('name', 'Product'),
+                    'id': str(item_id),
+                    'name': str(product.get('name', 'Product')),
                     'price': price,
-                    'image': product.get('image', ''),
+                    'image': str(product.get('image', '')),
                     'type': 'product',
                     'quantity': quantity,
                     'item_total': item_total,
-                    'stock': product.get('stock', 0),
-                    'description': product.get('description', ''),
+                    'stock': int(product.get('stock', 0)),
+                    'description': str(product.get('description', '')),
                     'specs': product.get('specs', [])
                 })
                 subtotal += item_total
                 total_items += quantity
                 continue
             
+            # Check if it's a bundle
             bundle = bundle_lookup.get(str(item_id))
             if bundle:
-                price = bundle.get('price', 0)
+                price = float(bundle.get('price', 0))
                 item_total = price * quantity
                 cart_items.append({
-                    'id': item_id,
-                    'name': bundle.get('name', 'Bundle'),
+                    'id': str(item_id),
+                    'name': str(bundle.get('name', 'Bundle')),
                     'price': price,
-                    'image': bundle.get('image', ''),
+                    'image': str(bundle.get('image', '')),
                     'type': 'bundle',
                     'quantity': quantity,
                     'item_total': item_total,
