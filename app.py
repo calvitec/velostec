@@ -175,7 +175,7 @@ def update_product_stock(product_id, new_stock):
         return False
 
 def get_cart():
-    """Get cart from session - with proper initialization"""
+    """Get cart from session"""
     try:
         cart = session.get('cart', {})
         if isinstance(cart, list):
@@ -432,22 +432,22 @@ def cart_page():
         products = load_products()
         bundles = load_bundles()
         
+        # Create lookups for faster access
+        product_lookup = {str(p.get('id')): p for p in products if p and p.get('id')}
+        bundle_lookup = {str(b.get('id')): b for b in bundles if b and b.get('id')}
+        
         for item_id, quantity in cart.items():
             if quantity <= 0:
                 continue
             
-            product = None
-            for p in products:
-                if str(p.get('id')) == str(item_id):
-                    product = p
-                    break
-            
+            product = product_lookup.get(str(item_id))
             if product:
-                item_total = product.get('price', 0) * quantity
+                price = product.get('price', 0)
+                item_total = price * quantity
                 cart_items.append({
                     'id': item_id,
                     'name': product.get('name', 'Product'),
-                    'price': product.get('price', 0),
+                    'price': price,
                     'image': product.get('image', ''),
                     'type': 'product',
                     'quantity': quantity,
@@ -460,22 +460,22 @@ def cart_page():
                 total_items += quantity
                 continue
             
-            for bundle in bundles:
-                if str(bundle.get('id')) == str(item_id):
-                    item_total = bundle.get('price', 0) * quantity
-                    cart_items.append({
-                        'id': item_id,
-                        'name': bundle.get('name', 'Bundle'),
-                        'price': bundle.get('price', 0),
-                        'image': bundle.get('image', ''),
-                        'type': 'bundle',
-                        'quantity': quantity,
-                        'item_total': item_total,
-                        'products': bundle.get('products', [])
-                    })
-                    subtotal += item_total
-                    total_items += quantity
-                    break
+            bundle = bundle_lookup.get(str(item_id))
+            if bundle:
+                price = bundle.get('price', 0)
+                item_total = price * quantity
+                cart_items.append({
+                    'id': item_id,
+                    'name': bundle.get('name', 'Bundle'),
+                    'price': price,
+                    'image': bundle.get('image', ''),
+                    'type': 'bundle',
+                    'quantity': quantity,
+                    'item_total': item_total,
+                    'products': bundle.get('products', [])
+                })
+                subtotal += item_total
+                total_items += quantity
         
         shipping = 0 if subtotal >= 50000 else 800
         total = subtotal + shipping
@@ -489,6 +489,7 @@ def cart_page():
         )
     except Exception as e:
         print(f"Cart error: {e}")
+        traceback.print_exc()
         flash('Error loading cart', 'danger')
         return redirect(url_for('index'))
 
@@ -552,17 +553,18 @@ def add_to_cart(item_id):
 
 @app.route('/update-cart/<item_id>/<action>', methods=['POST'])
 def update_cart_item(item_id, action):
+    """Update cart item - returns JSON"""
     try:
         cart = get_cart()
         products = load_products()
+        bundles = load_bundles()
+        
+        # Create lookups
+        product_lookup = {str(p.get('id')): p for p in products if p and p.get('id')}
+        bundle_lookup = {str(b.get('id')): b for b in bundles if b and b.get('id')}
         
         if action == 'increase':
-            product = None
-            for p in products:
-                if str(p.get('id')) == str(item_id):
-                    product = p
-                    break
-            
+            product = product_lookup.get(str(item_id))
             if product:
                 current = cart.get(item_id, 0)
                 if current >= product.get('stock', 0):
@@ -593,46 +595,42 @@ def update_cart_item(item_id, action):
         session['cart'] = cart
         session.modified = True
         
+        # Recalculate totals
         subtotal = 0
-        products = load_products()
-        bundles = load_bundles()
-        
         for iid, qty in cart.items():
-            for p in products:
-                if str(p.get('id')) == str(iid):
-                    subtotal += p.get('price', 0) * qty
-                    break
+            product = product_lookup.get(str(iid))
+            if product:
+                subtotal += product.get('price', 0) * qty
             else:
-                for b in bundles:
-                    if str(b.get('id')) == str(iid):
-                        subtotal += b.get('price', 0) * qty
-                        break
+                bundle = bundle_lookup.get(str(iid))
+                if bundle:
+                    subtotal += bundle.get('price', 0) * qty
         
         shipping = 0 if subtotal >= 50000 else 800
         total = subtotal + shipping
         
+        # Get item price for response
         item_price = 0
-        for p in products:
-            if str(p.get('id')) == str(item_id):
-                item_price = p.get('price', 0)
-                break
+        product = product_lookup.get(str(item_id))
+        if product:
+            item_price = product.get('price', 0)
         else:
-            for b in bundles:
-                if str(b.get('id')) == str(item_id):
-                    item_price = b.get('price', 0)
-                    break
+            bundle = bundle_lookup.get(str(item_id))
+            if bundle:
+                item_price = bundle.get('price', 0)
         
         return jsonify({
             'success': True,
-            'quantity': cart.get(item_id, 0),
+            'quantity': cart.get(item_id, 0) if item_id in cart else 0,
             'subtotal': subtotal,
             'shipping': shipping,
             'total': total,
             'total_items': sum(cart.values()),
-            'item_total': item_price * cart.get(item_id, 0)
+            'item_total': item_price * cart.get(item_id, 0) if item_id in cart else 0
         })
     except Exception as e:
         print(f"Error updating cart: {e}")
+        traceback.print_exc()
         return jsonify({'success': False, 'message': str(e)}), 500
 
 @app.route('/remove-from-cart/<item_id>', methods=['POST'])
@@ -666,16 +664,14 @@ def checkout_page():
         products = load_products()
         bundles = load_bundles()
         
+        product_lookup = {str(p.get('id')): p for p in products if p and p.get('id')}
+        bundle_lookup = {str(b.get('id')): b for b in bundles if b and b.get('id')}
+        
         for item_id, quantity in cart.items():
             if quantity <= 0:
                 continue
             
-            product = None
-            for p in products:
-                if str(p.get('id')) == str(item_id):
-                    product = p
-                    break
-            
+            product = product_lookup.get(str(item_id))
             if product:
                 item_total = product.get('price', 0) * quantity
                 cart_items.append({
@@ -691,21 +687,20 @@ def checkout_page():
                 total_items += quantity
                 continue
             
-            for bundle in bundles:
-                if str(bundle.get('id')) == str(item_id):
-                    item_total = bundle.get('price', 0) * quantity
-                    cart_items.append({
-                        'id': item_id,
-                        'name': bundle.get('name', 'Bundle'),
-                        'price': bundle.get('price', 0),
-                        'image': bundle.get('image', ''),
-                        'type': 'bundle',
-                        'quantity': quantity,
-                        'item_total': item_total
-                    })
-                    subtotal += item_total
-                    total_items += quantity
-                    break
+            bundle = bundle_lookup.get(str(item_id))
+            if bundle:
+                item_total = bundle.get('price', 0) * quantity
+                cart_items.append({
+                    'id': item_id,
+                    'name': bundle.get('name', 'Bundle'),
+                    'price': bundle.get('price', 0),
+                    'image': bundle.get('image', ''),
+                    'type': 'bundle',
+                    'quantity': quantity,
+                    'item_total': item_total
+                })
+                subtotal += item_total
+                total_items += quantity
         
         shipping = 0 if subtotal >= 50000 else 800
         total = subtotal + shipping
@@ -719,6 +714,7 @@ def checkout_page():
         )
     except Exception as e:
         print(f"Checkout error: {e}")
+        traceback.print_exc()
         flash('Error loading checkout', 'danger')
         return redirect(url_for('index'))
 
@@ -729,6 +725,7 @@ def place_order():
         if not cart:
             return jsonify({'success': False, 'message': 'Cart is empty'})
         
+        # Get data from form or JSON
         if request.is_json:
             data = request.get_json()
         else:
@@ -739,56 +736,58 @@ def place_order():
                 'customer_address': request.form.get('customer_address', 'N/A')
             }
         
+        # Validate customer name
+        if not data.get('customer_name') or data.get('customer_name') == 'Customer':
+            return jsonify({'success': False, 'message': 'Please enter your name'}), 400
+        
         subtotal = 0
         products = load_products()
         bundles = load_bundles()
+        product_lookup = {str(p.get('id')): p for p in products if p and p.get('id')}
+        bundle_lookup = {str(b.get('id')): b for b in bundles if b and b.get('id')}
         order_items = []
         
         for item_id, quantity in cart.items():
             if quantity <= 0:
                 continue
                 
-            item_found = False
-            for p in products:
-                if str(p.get('id')) == str(item_id):
-                    current_stock = p.get('stock', 0)
-                    if current_stock < quantity:
-                        return jsonify({
-                            'success': False,
-                            'message': f'Not enough stock for {p.get("name")}. Available: {current_stock}'
-                        }), 400
-                    
-                    item_total = p.get('price', 0) * quantity
-                    subtotal += item_total
-                    order_items.append({
-                        'product_id': item_id,
-                        'name': p.get('name'),
-                        'price': p.get('price', 0),
-                        'quantity': quantity,
-                        'total': item_total,
-                        'type': 'product'
-                    })
-                    item_found = True
-                    
-                    # Update stock
-                    new_stock = max(0, current_stock - quantity)
-                    update_product_stock(item_id, new_stock)
-                    break
+            product = product_lookup.get(str(item_id))
+            if product:
+                current_stock = product.get('stock', 0)
+                if current_stock < quantity:
+                    return jsonify({
+                        'success': False,
+                        'message': f'Not enough stock for {product.get("name")}. Available: {current_stock}'
+                    }), 400
+                
+                item_total = product.get('price', 0) * quantity
+                subtotal += item_total
+                order_items.append({
+                    'product_id': item_id,
+                    'name': product.get('name', 'Product'),
+                    'price': product.get('price', 0),
+                    'quantity': quantity,
+                    'total': item_total,
+                    'type': 'product'
+                })
+                
+                # Update stock
+                new_stock = max(0, current_stock - quantity)
+                update_product_stock(item_id, new_stock)
+                continue
             
-            if not item_found:
-                for b in bundles:
-                    if str(b.get('id')) == str(item_id):
-                        item_total = b.get('price', 0) * quantity
-                        subtotal += item_total
-                        order_items.append({
-                            'product_id': item_id,
-                            'name': b.get('name'),
-                            'price': b.get('price', 0),
-                            'quantity': quantity,
-                            'total': item_total,
-                            'type': 'bundle'
-                        })
-                        break
+            bundle = bundle_lookup.get(str(item_id))
+            if bundle:
+                item_total = bundle.get('price', 0) * quantity
+                subtotal += item_total
+                order_items.append({
+                    'product_id': item_id,
+                    'name': bundle.get('name', 'Bundle'),
+                    'price': bundle.get('price', 0),
+                    'quantity': quantity,
+                    'total': item_total,
+                    'type': 'bundle'
+                })
         
         if not order_items:
             return jsonify({'success': False, 'message': 'No valid items in cart'}), 400
@@ -798,10 +797,10 @@ def place_order():
         
         order_id = f"ELEC-{uuid.uuid4().hex[:8].upper()}"
         
-        customer_name = data.get('customer_name', 'Customer')
-        customer_email = data.get('customer_email', 'customer@example.com')
-        customer_phone = data.get('customer_phone', 'N/A')
-        customer_address = data.get('customer_address', 'N/A')
+        customer_name = data.get('customer_name', 'Customer').strip()
+        customer_email = data.get('customer_email', 'customer@example.com').strip()
+        customer_phone = data.get('customer_phone', 'N/A').strip()
+        customer_address = data.get('customer_address', 'N/A').strip()
         
         order_data = {
             'order_id': order_id,
@@ -831,7 +830,7 @@ def place_order():
                 'message': 'Order placed successfully!'
             })
         else:
-            return jsonify({'success': False, 'message': 'Failed to save order'}), 500
+            return jsonify({'success': False, 'message': 'Failed to save order. Please try again.'}), 500
             
     except Exception as e:
         print(f"Error placing order: {e}")
@@ -1337,29 +1336,6 @@ def test_data():
         })
     except Exception as e:
         return jsonify({'error': str(e)})
-
-@app.route('/test-add-to-cart/<item_id>')
-def test_add_to_cart(item_id):
-    """Test the add to cart functionality"""
-    try:
-        cart = get_cart()
-        products = load_products()
-        
-        product = None
-        for p in products:
-            if str(p.get('id')) == str(item_id):
-                product = p
-                break
-        
-        return jsonify({
-            'item_id': item_id,
-            'product_found': product is not None,
-            'product': product,
-            'current_cart': cart,
-            'session_cart': session.get('cart', {})
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 # ================================================================
 # ===== RUN APP =====
