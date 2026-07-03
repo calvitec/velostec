@@ -334,6 +334,28 @@
         }
         .toast.hidden { display: none; }
 
+        /* ===== EDIT PRODUCT MODAL ===== */
+        #editProductModal .modal-content {
+            max-width: 700px;
+        }
+        #editProductModal .form-input:disabled {
+            background: #f1f5f9;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        #editProductModal .form-input {
+            font-size: 0.85rem;
+        }
+        @media (max-width: 640px) {
+            #editProductModal .modal-content {
+                padding: 16px;
+                margin: 10px;
+            }
+            #editProductModal .grid {
+                gap: 12px;
+            }
+        }
+
         /* ===== MODAL ===== */
         .modal-overlay {
             position: fixed;
@@ -413,28 +435,6 @@
         }
         .product-pos-card img[src=""] {
             display: none;
-        }
-
-        /* Fix for edit product modal */
-        #editProductModal .modal-content {
-            max-width: 700px;
-        }
-        #editProductModal .form-input:disabled {
-            background: #f1f5f9;
-            cursor: not-allowed;
-            opacity: 0.7;
-        }
-        #editProductModal .form-input {
-            font-size: 0.85rem;
-        }
-        @media (max-width: 640px) {
-            #editProductModal .modal-content {
-                padding: 16px;
-                margin: 10px;
-            }
-            #editProductModal .grid {
-                gap: 12px;
-            }
         }
     </style>
 </head>
@@ -522,6 +522,7 @@
                     <i class="fas fa-users"></i><span>Customers</span>
                     <span class="badge-count" id="customerCount">0</span>
                 </a>
+                <!-- POS Link -->
                 <a href="#pos" class="sidebar-item" onclick="showSection('pos')">
                     <i class="fas fa-cash-register"></i><span>POS</span>
                     <span class="badge-dot"></span>
@@ -569,7 +570,7 @@
                                 <div class="stat-icon bg-purple-50 text-purple-500"><i class="fas fa-coin"></i></div>
                                 <span class="stat-change"><i class="fas fa-arrow-up"></i> 15%</span>
                             </div>
-                            <p class="stat-value text-purple-600" id="dashRevenue">KSh {{ stats.total_revenue|default(0)|int|format_number }}</p>
+                            <p class="stat-value text-purple-600" id="dashRevenue">KSh {{ stats.total_revenue|default(0)|format_number }}</p>
                             <p class="stat-label">Total Revenue</p>
                         </div>
                         <div class="stat-card animate-slide" style="animation-delay:0.2s">
@@ -684,7 +685,7 @@
                                     <tr class="product-row">
                                         <td><img src="{{ product.image|default('') }}" class="w-12 h-12 rounded-lg object-cover bg-gray-50" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2248%22 height=%2248%22%3E%3Crect width=%2248%22 height=%2248%22 fill=%22%23f1f5f9%22/%3E%3Ctext x=%2224%22 y=%2230%22 text-anchor=%22middle%22 font-family=%22sans-serif%22 font-size=%2212%22 fill=%22%2394a3b8%22%3E📦%3C/text%3E%3C/svg%3E'"></td>
                                         <td class="font-semibold text-[#0f172a]">{{ product.name|default('Product') }}</td>
-                                        <td class="text-green-600 font-bold">KSh {{ product.price|default(0)|int|format_number }}</td>
+                                        <td class="text-green-600 font-bold">KSh {{ product.price|default(0)|format_number }}</td>
                                         <td><span class="badge {{ 'badge-danger' if product.stock|default(0) < 5 else 'badge-success' }}">{{ product.stock|default(0) }}</span></td>
                                         <td>{{ product.category|default('Uncategorized') }}</td>
                                         <td>
@@ -712,7 +713,7 @@
 
                     <div class="glass-card">
                         <form onsubmit="saveProduct(event)">
-                            <input type="hidden" id="prodId" />
+                            <input type="hidden" id="prodId" value="{{ uuid.uuid4().hex[:8] }}" />
                             <div class="grid md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="form-label"><i class="fas fa-heading"></i> Product Name</label>
@@ -812,7 +813,7 @@
                                         <td class="font-mono text-sm">{{ order.order_id|default('N/A') }}</td>
                                         <td>{{ order.customer.name|default('Walk-in') if order.customer else 'Walk-in' }}</td>
                                         <td>{{ order.items|length|default(0) if order.items else 0 }}</td>
-                                        <td class="text-green-600 font-bold">KSh {{ order.total|default(0)|int|format_number }}</td>
+                                        <td class="text-green-600 font-bold">KSh {{ order.total|default(0)|format_number }}</td>
                                         <td>
                                             <select onchange="updateOrderStatus('{{ order.order_id }}', this.value)" class="text-xs border rounded px-2 py-1">
                                                 <option value="pending" {{ 'selected' if order.status == 'pending' }}>🟡 Pending</option>
@@ -862,7 +863,7 @@
                                         <td>{{ customer.email|default('N/A') }}</td>
                                         <td>{{ customer.phone|default('N/A') }}</td>
                                         <td class="text-right">{{ customer.orders|default(0) }}</td>
-                                        <td class="text-right text-green-600 font-bold">KSh {{ customer.total_spent|default(0)|int|format_number }}</td>
+                                        <td class="text-right text-green-600 font-bold">KSh {{ customer.total_spent|default(0)|format_number }}</td>
                                     </tr>
                                     {% endfor %}
                                 </tbody>
@@ -919,7 +920,7 @@
                                         {% endif %}
                                     </div>
                                     <p class="text-xs font-semibold text-[#0f172a] truncate">{{ product.name|default('Product') }}</p>
-                                    <p class="text-green-600 font-bold text-sm">KSh {{ product.price|default(0)|int|format_number }}</p>
+                                    <p class="text-green-600 font-bold text-sm">KSh {{ product.price|default(0)|format_number }}</p>
                                     <p class="text-[10px] text-gray-400">Stock: {{ product.stock|default(0) }}</p>
                                     <button class="mt-1 w-full py-1 bg-green-600 text-white text-xs rounded-full hover:bg-green-700 transition group-hover:scale-105">
                                         <i class="fas fa-plus"></i> Add
