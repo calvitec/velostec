@@ -56,75 +56,88 @@ SUPABASE_HEADERS = {
 }
 
 # ================================================================
-# ===== DATA LOADING - WORKS ON BOTH LOCAL AND VERCEL =====
+# ===== DATA LOADING =====
 # ================================================================
 
 def load_orders():
     """Load orders - Supabase on Vercel, JSON on local"""
+    orders = []
     
-    # On Vercel: ALWAYS use Supabase
-    if IS_VERCEL:
-        try:
-            print("📤 Vercel: Loading orders from Supabase...")
-            response = requests.get(
-                f"{SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc",
-                headers=SUPABASE_HEADERS,
-                timeout=10
-            )
-            if response.status_code == 200:
-                orders = response.json()
-                if isinstance(orders, list):
-                    print(f"✅ Loaded {len(orders)} orders from Supabase")
-                    return orders
-            print(f"⚠️ Supabase returned: {response.status_code}")
-            return []
-        except Exception as e:
-            print(f"❌ Error loading orders: {e}")
-            return []
-    
-    # Local: Load from JSON
+    # Try Supabase first (works on both Vercel and local)
     try:
-        if os.path.exists('orders.json'):
-            with open('orders.json', 'r') as f:
-                orders = json.load(f)
-                if orders and isinstance(orders, list):
-                    print(f"✅ Loaded {len(orders)} orders from JSON")
-                    return orders
-        return []
+        print("📤 Loading orders from Supabase...")
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/orders?select=*&order=created_at.desc",
+            headers=SUPABASE_HEADERS,
+            timeout=10
+        )
+        if response.status_code == 200:
+            orders = response.json()
+            if isinstance(orders, list) and len(orders) > 0:
+                print(f"✅ Loaded {len(orders)} orders from Supabase")
+                # Save to JSON as backup
+                try:
+                    with open('orders.json', 'w') as f:
+                        json.dump(orders, f, indent=2)
+                except:
+                    pass
+                return orders
+            elif isinstance(orders, list):
+                print(f"⚠️ Supabase returned empty list")
+            else:
+                print(f"⚠️ Unexpected response: {type(orders)}")
+        else:
+            print(f"⚠️ Supabase returned: {response.status_code}")
     except Exception as e:
-        print(f"❌ Error loading orders: {e}")
-        return []
+        print(f"⚠️ Error loading from Supabase: {e}")
+    
+    # Fallback to JSON (local only, or if Supabase fails)
+    if not IS_VERCEL:
+        try:
+            if os.path.exists('orders.json'):
+                with open('orders.json', 'r') as f:
+                    orders = json.load(f)
+                    if orders and isinstance(orders, list):
+                        print(f"✅ Loaded {len(orders)} orders from JSON")
+                        return orders
+        except Exception as e:
+            print(f"⚠️ Error loading JSON: {e}")
+    
+    print("📊 No orders found")
+    return []
 
 def load_products():
     """Load products - Supabase on Vercel, JSON on local"""
+    products = []
     
-    # On Vercel: ALWAYS use Supabase
-    if IS_VERCEL:
-        try:
-            print("📤 Vercel: Loading products from Supabase...")
-            response = requests.get(
-                f"{SUPABASE_URL}/rest/v1/products?select=*",
-                headers=SUPABASE_HEADERS,
-                timeout=5
-            )
-            if response.status_code == 200:
-                products = response.json()
-                if isinstance(products, list):
-                    print(f"✅ Loaded {len(products)} products from Supabase")
-                    return products
-            return []
-        except Exception as e:
-            print(f"❌ Error loading products: {e}")
-            return []
-    
-    # Local: Load from JSON
+    # Try Supabase first
     try:
-        if os.path.exists('products.json'):
-            with open('products.json', 'r') as f:
-                products = json.load(f)
-                if products and isinstance(products, list):
-                    print(f"✅ Loaded {len(products)} products from JSON")
-                    return products
+        print("📤 Loading products from Supabase...")
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/products?select=*",
+            headers=SUPABASE_HEADERS,
+            timeout=5
+        )
+        if response.status_code == 200:
+            products = response.json()
+            if isinstance(products, list) and len(products) > 0:
+                print(f"✅ Loaded {len(products)} products from Supabase")
+                return products
+    except Exception as e:
+        print(f"⚠️ Error loading products: {e}")
+    
+    # Fallback to JSON
+    if not IS_VERCEL:
+        try:
+            if os.path.exists('products.json'):
+                with open('products.json', 'r') as f:
+                    products = json.load(f)
+                    if products and isinstance(products, list):
+                        print(f"✅ Loaded {len(products)} products from JSON")
+                        return products
+        except:
+            pass
+        
         # Create sample products
         products = [
             {"id": "1", "name": "iPhone 15 Pro Max", "price": 150000, "cost_price": 120000, "image": "", "category": "Phones", "description": "Latest iPhone", "rating": 4.8, "reviews": 120, "badge": "Best Seller", "stock": 50, "original_price": 165000, "specs": []},
@@ -133,9 +146,9 @@ def load_products():
         with open('products.json', 'w') as f:
             json.dump(products, f, indent=2)
         return products
-    except Exception as e:
-        print(f"❌ Error loading products: {e}")
-        return []
+    
+    print("📊 No products found")
+    return []
 
 def load_bundles():
     """Load bundles"""
@@ -145,9 +158,9 @@ def load_bundles():
                 bundles = json.load(f)
                 if bundles and isinstance(bundles, list):
                     return bundles
-        return []
     except:
-        return []
+        pass
+    return []
 
 def get_cart():
     cart = session.get('cart', {})
@@ -797,7 +810,7 @@ def place_order():
         
         print(f"📦 Order data: {json.dumps(order_data, indent=2)}")
         
-        # Save to JSON (local only, Vercel saves to Supabase)
+        # Save to JSON (local only)
         if not IS_VERCEL:
             orders = load_orders()
             if not isinstance(orders, list):
@@ -1079,9 +1092,9 @@ def admin_pos_place_order():
                     }), 400
                 product['stock'] = max(0, current_stock - quantity)
         
-        # On Vercel, update stock in memory only (Supabase will handle it)
         if not IS_VERCEL:
-            save_json_file('products.json', products)
+            with open('products.json', 'w') as f:
+                json.dump(products, f, indent=2)
         
         order_data = {
             'order_id': order_id,
@@ -1100,28 +1113,7 @@ def admin_pos_place_order():
             }
         }
         
-        # Save order
-        if IS_VERCEL:
-            # On Vercel, save to Supabase
-            import json as json_module
-            supabase_order = {
-                'order_id': order_data.get('order_id'),
-                'items': json_module.dumps(order_data.get('items', [])),
-                'subtotal': order_data.get('subtotal', 0),
-                'shipping': order_data.get('shipping', 0),
-                'total': order_data.get('total', 0),
-                'status': order_data.get('status', 'confirmed'),
-                'source': order_data.get('source', 'pos'),
-                'created_at': order_data.get('created_at', datetime.utcnow().isoformat()),
-                'customer': json_module.dumps(order_data.get('customer', {}))
-            }
-            requests.post(
-                f"{SUPABASE_URL}/rest/v1/orders",
-                headers=SUPABASE_HEADERS,
-                json=supabase_order,
-                timeout=5
-            )
-        else:
+        if not IS_VERCEL:
             orders = load_orders()
             if not isinstance(orders, list):
                 orders = []
@@ -1227,7 +1219,6 @@ def admin_products():
         if not found:
             products.append(product_data)
         
-        # On local, save to JSON
         if not IS_VERCEL:
             with open('products.json', 'w') as f:
                 json.dump(products, f, indent=2)
@@ -1274,6 +1265,41 @@ def admin_update_order_status(order_id):
         return jsonify({'success': True})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/force-sync')
+def force_sync():
+    """Force sync data from Supabase"""
+    if not session.get('admin_logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/orders?select=*",
+            headers=SUPABASE_HEADERS,
+            timeout=10
+        )
+        
+        result = {
+            'status_code': response.status_code,
+            'orders_count': 0,
+            'sample': None
+        }
+        
+        if response.status_code == 200:
+            orders = response.json()
+            if isinstance(orders, list):
+                result['orders_count'] = len(orders)
+                if orders:
+                    result['sample'] = orders[0]
+                print(f"✅ Found {len(orders)} orders in Supabase")
+            else:
+                result['error'] = f"Unexpected response type: {type(orders)}"
+        else:
+            result['error'] = f"Status {response.status_code}: {response.text[:200]}"
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)})
 
 @app.route('/debug-data')
 def debug_data():
