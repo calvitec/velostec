@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes" />
+    <title>Checkout · Price Point Kenya</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    <style>
+        * { font-family: 'Inter', sans-serif; margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #f8fafc; color: #0f172a; min-height: 100vh; }
+
+        /* ===== ANIMATIONS ===== */
+        @keyframes slideUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+        @keyframes confettiFall { 0% { transform: translateY(-10px) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg); opacity: 0; } }
+
+        /* ===== HEADER ===== */
+        .app-header {
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid #eef2f6;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            transition: all 0.3s ease;
+        }
+        .app-header.scrolled { box-shadow: 0 4px 20px rgba(0,0,0,0.04); }
+
+        .brand-text {
+            font-weight: 800;
+            font-size: 1.4rem;
+            color: #0f172a;
+            letter-spacing: -0.5px;
+        }
+        .brand-text span { 
+            background: linear-gradient(135deg, #2563eb, #3b82f6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .back-link {
+            color: #64748b;
+            text-decoration: none;
+            transition: all 0.3s;
+            font-weight: 500;
+            font-size: 0.9rem;
+            padding: 8px 16px;
+            border-radius: 8px;
+        }
+        .back-link:hover {
+            background: #f1f5f9;
+            color: #0f172a;
+        }
+        .back-link i { margin-right: 6px; }
+
+        /* ===== GLASS CARD ===== */
+        .glass-card {
+            background: white;
+            border: 1px solid #eef2f6;
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.3s;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        }
+        .glass-card:hover {
+            box-shadow: 0 8px 30px rgba(0,0,0,0.04);
+        }
+
+        /* ===== FORM ===== */
+        .form-input {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 12px 16px;
+            width: 100%;
+            color: #0f172a;
+            transition: all 0.3s;
+            background: white;
+            font-size: 0.95rem;
+        }
+        .form-input::placeholder { color: #94a3b8; }
+        .form-input:focus {
+            outline: none;
+            border-color: #2563eb;
+            box-shadow: 0 0 0 4px rgba(37,99,235,0.06);
+        }
+        .form-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #475569;
+            display: block;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .form-label i { color: #2563eb; margin-right: 4px; }
+        .form-label .required { color: #ef4444; margin-left: 2px; }
+
+        /* ===== BUTTONS ===== */
+        .btn-primary {
+            background: #1e293b;
+            color: white;
+            padding: 14px 32px;
+            border-radius: 9999px;
+            font-weight: 700;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            width: 100%;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        .btn-primary:hover {
+            background: #0f172a;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.08);
+        }
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-outline {
+            border: 2px solid #e2e8f0;
+            color: #475569;
+            background: transparent;
+            padding: 12px 24px;
+            border-radius: 9999px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            font-size: 0.95rem;
+        }
+        .btn-outline:hover {
+            border-color: #2563eb;
+            color: #2563eb;
+            background: #eff6ff;
+        }
+
+        /* ===== STEP INDICATOR ===== */
+        .step-indicator {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 30px;
+        }
+        .step-dot {
+            width: 40px;
+            height: 4px;
+            border-radius: 2px;
+            background: #e2e8f0;
+            transition: all 0.4s;
+        }
+        .step-dot.active {
+            background: #2563eb;
+            width: 60px;
+        }
+        .step-dot.completed {
+            background: #10b981;
+        }
+
+        /* ===== CHECKOUT STEPS ===== */
+        .checkout-step {
+            display: none;
+            animation: slideUp 0.5s ease;
+        }
+        .checkout-step.active { display: block; }
+
+        /* ===== SUMMARY ===== */
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .summary-item:last-child { border-bottom: none; }
+        .summary-total {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 0;
+            margin-top: 8px;
+            border-top: 2px solid #2563eb;
+            font-size: 1.2rem;
+            font-weight: 700;
+        }
+        .summary-total .value { color: #2563eb; font-size: 1.4rem; }
+
+        /* ===== CONFETTI ===== */
+        .confetti-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 9998;
+            overflow: hidden;
+        }
+        .confetti-piece {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            animation: confettiFall linear forwards;
+        }
+
+        /* ===== TOAST ===== */
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            z-index: 9999;
+            background: white;
+            padding: 16px 24px;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.1);
+            border: 1px solid #eef2f6;
+            animation: slideUp 0.4s ease-out;
+            max-width: 400px;
+        }
+        .toast.hidden { display: none; }
+
+        /* ===== ORDER ITEMS ===== */
+        .order-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .order-item:last-child { border-bottom: none; }
+        .order-item-image {
+            width: 48px;
+            height: 48px;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #f8fafc;
+            flex-shrink: 0;
+        }
+        .order-item-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            padding: 4px;
+        }
+        .order-item-name {
+            font-weight: 600;
+            color: #0f172a;
+            font-size: 0.9rem;
+        }
+        .order-item-price {
+            font-weight: 700;
+            color: #2563eb;
+            font-size: 0.9rem;
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 768px) {
+            .glass-card { padding: 16px; }
+            .app-header .brand-text { font-size: 1.1rem; }
+            .back-link { font-size: 0.8rem; padding: 6px 12px; }
+            .step-dot { width: 30px; }
+            .step-dot.active { width: 40px; }
+        }
+        @media (max-width: 480px) {
+            .glass-card { padding: 12px; }
+            .form-input { font-size: 0.85rem; padding: 10px 14px; }
+            .btn-primary { font-size: 0.9rem; padding: 12px 20px; }
+            .btn-outline { font-size: 0.85rem; padding: 10px 16px; }
+            .order-item-image { width: 40px; height: 40px; }
+            .order-item-name { font-size: 0.8rem; }
+        }
+
+        /* ===== SCROLLBAR ===== */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== HEADER ===== -->
+    <header class="app-header" id="mainHeader">
+        <div class="max-w-7xl mx-auto px-4 flex items-center justify-between h-16">
+            <a href="/" class="flex items-center gap-2">
+                <i class="fas fa-bolt text-2xl text-blue-600"></i>
+                <span class="brand-text">Price<span>Point</span></span>
+            </a>
+            <div class="flex items-center gap-4">
+                <a href="/cart" class="back-link">
+                    <i class="fas fa-arrow-left"></i> Back to Cart
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- ===== MAIN CONTENT ===== -->
+    <div class="max-w-7xl mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+            <div>
+                <h1 class="text-2xl md:text-3xl font-bold text-[#0f172a]">Checkout</h1>
+                <p class="text-gray-500 text-sm mt-1">Complete your purchase securely</p>
+            </div>
+            <span class="text-gray-400 text-sm" id="orderTotal">KSh {{ "%.0f"|format(total) }}</span>
+        </div>
+
+        <!-- Step Indicators -->
+        <div class="step-indicator">
+            <div class="step-dot active" id="step1Dot"></div>
+            <div class="step-dot" id="step2Dot"></div>
+            <div class="step-dot" id="step3Dot"></div>
+        </div>
+
+        <div class="grid lg:grid-cols-3 gap-8">
+            <!-- Checkout Form -->
+            <div class="lg:col-span-2">
+                <div class="glass-card">
+                    <!-- Step 1: Shipping Information -->
+                    <div class="checkout-step active" id="step1">
+                        <h2 class="text-xl font-bold text-[#0f172a] mb-6 flex items-center gap-2">
+                            <span class="bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold">1</span>
+                            Shipping Information
+                        </h2>
+                        <div class="space-y-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="form-label"><i class="fas fa-user"></i> First Name <span class="required">*</span></label>
+                                    <input type="text" class="form-input" placeholder="John" id="firstName" value="John" />
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-user"></i> Last Name <span class="required">*</span></label>
+                                    <input type="text" class="form-input" placeholder="Doe" id="lastName" value="Doe" />
+                                </div>
+                            </div>
+                            <div>
+                                <label class="form-label"><i class="fas fa-envelope"></i> Email Address <span class="required">*</span></label>
+                                <input type="email" class="form-input" placeholder="john@example.com" id="email" value="john@example.com" />
+                            </div>
+                            <div>
+                                <label class="form-label"><i class="fas fa-phone"></i> Phone Number <span class="required">*</span></label>
+                                <input type="tel" class="form-input" placeholder="+254 700 000 000" id="phone" value="+254 700 000 000" />
+                            </div>
+                            <div>
+                                <label class="form-label"><i class="fas fa-map-marker-alt"></i> Shipping Address <span class="required">*</span></label>
+                                <input type="text" class="form-input" placeholder="123 Main Street" id="address" value="123 Main Street" />
+                            </div>
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="form-label"><i class="fas fa-city"></i> City <span class="required">*</span></label>
+                                    <input type="text" class="form-input" placeholder="Nairobi" id="city" value="Nairobi" />
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-mailbox"></i> Postal Code</label>
+                                    <input type="text" class="form-input" placeholder="00100" id="zip" value="00100" />
+                                </div>
+                            </div>
+                            <div>
+                                <label class="form-label"><i class="fas fa-globe"></i> Country <span class="required">*</span></label>
+                                <input type="text" class="form-input" placeholder="Kenya" id="country" value="Kenya" />
+                            </div>
+                        </div>
+                        <button onclick="goToStep(2)" class="btn-primary mt-6">
+                            Continue to Payment <i class="fas fa-arrow-right"></i>
+                        </button>
+                    </div>
+
+                    <!-- Step 2: Payment -->
+                    <div class="checkout-step" id="step2">
+                        <h2 class="text-xl font-bold text-[#0f172a] mb-6 flex items-center gap-2">
+                            <span class="bg-blue-600 text-white w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold">2</span>
+                            Payment Details
+                        </h2>
+                        <div class="bg-blue-50 border border-blue-100 rounded-xl p-4 mb-4 flex items-start gap-3">
+                            <i class="fas fa-lock text-blue-600 text-lg mt-0.5"></i>
+                            <div>
+                                <p class="text-sm font-semibold text-blue-800">Secure Checkout</p>
+                                <p class="text-xs text-blue-600">Your payment information is encrypted and secure. No real payment will be processed.</p>
+                            </div>
+                        </div>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="form-label"><i class="fas fa-credit-card"></i> Card Number</label>
+                                <input type="text" class="form-input" placeholder="4242 4242 4242 4242" value="4242 4242 4242 4242" readonly />
+                            </div>
+                            <div class="grid grid-cols-3 gap-4">
+                                <div class="col-span-2">
+                                    <label class="form-label"><i class="fas fa-calendar"></i> Expiry Date</label>
+                                    <input type="text" class="form-input" placeholder="MM/YY" value="12/25" readonly />
+                                </div>
+                                <div>
+                                    <label class="form-label"><i class="fas fa-shield-alt"></i> CVC</label>
+                                    <input type="text" class="form-input" placeholder="123" value="123" readonly />
+                                </div>
+                            </div>
+                            <div>
+                                <label class="form-label"><i class="fas fa-user"></i> Name on Card</label>
+                                <input type="text" class="form-input" placeholder="John Doe" value="John Doe" />
+                            </div>
+                        </div>
+                        <div class="flex gap-4 mt-6">
+                            <button onclick="goToStep(1)" class="btn-outline flex-1">
+                                <i class="fas fa-arrow-left"></i> Back
+                            </button>
+                            <button onclick="placeOrder()" class="btn-primary flex-1">
+                                <i class="fas fa-lock"></i> Place Order
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Confirmation -->
+                    <div class="checkout-step text-center" id="step3">
+                        <div class="py-12">
+                            <div class="w-24 h-24 mx-auto rounded-full bg-green-100 flex items-center justify-center mb-4">
+                                <i class="fas fa-check text-4xl text-green-600"></i>
+                            </div>
+                            <h2 class="text-2xl font-bold text-[#0f172a]">Order Placed! 🎉</h2>
+                            <p class="text-gray-500 mt-2">Your order has been confirmed and is being processed</p>
+                            <div class="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-100">
+                                <p class="text-gray-400 text-sm">Order ID</p>
+                                <p class="text-[#0f172a] font-bold text-lg" id="orderId">PP-XXXXXXXX</p>
+                            </div>
+                            <div class="mt-6 flex flex-col gap-3">
+                                <a href="/" class="btn-primary">
+                                    <i class="fas fa-arrow-left"></i> Continue Shopping
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Order Summary -->
+            <div class="lg:col-span-1">
+                <div class="glass-card sticky top-24">
+                    <h3 class="font-bold text-[#0f172a] text-lg mb-4 flex items-center gap-2">
+                        <i class="fas fa-receipt text-blue-600"></i> Order Summary
+                    </h3>
+                    
+                    {% for item in cart_items %}
+                    <div class="order-item">
+                        <div class="order-item-image">
+                            <img src="{{ item.image }}" alt="{{ item.name }}" onerror="this.style.display='none'">
+                        </div>
+                        <div class="flex-1">
+                            <div class="order-item-name">{{ item.name }}</div>
+                            <div class="order-item-price">KSh {{ "%.0f"|format(item.price) }}</div>
+                        </div>
+                        <div class="text-gray-400 text-sm">×{{ item.quantity }}</div>
+                    </div>
+                    {% endfor %}
+
+                    <div class="border-t border-gray-100 mt-4 pt-4 space-y-2 text-sm">
+                        <div class="summary-item">
+                            <span class="text-gray-500">Subtotal</span>
+                            <span class="text-[#0f172a] font-semibold">KSh {{ "%.0f"|format(subtotal) }}</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="text-gray-500">Shipping</span>
+                            <span class="font-semibold">
+                                {% if shipping == 0 %}
+                                    <span class="text-green-600">Free</span>
+                                {% else %}
+                                    <span class="text-[#0f172a]">KSh {{ "%.0f"|format(shipping) }}</span>
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="summary-total">
+                            <span class="text-[#0f172a]">Total</span>
+                            <span class="value">KSh {{ "%.0f"|format(total) }}</span>
+                        </div>
+                    </div>
+
+                    {% if shipping > 0 %}
+                    <div class="mt-2 text-xs text-gray-400 flex items-center gap-1">
+                        <i class="fas fa-info-circle text-blue-500"></i>
+                        Free shipping on orders over KSh 50,000
+                    </div>
+                    {% endif %}
+
+                    <div class="mt-4 pt-4 border-t border-gray-100 flex flex-wrap gap-3 text-xs text-gray-400">
+                        <span><i class="fas fa-lock text-green-500"></i> Secure Checkout</span>
+                        <span><i class="fas fa-undo text-orange-500"></i> 30-Day Returns</span>
+                        <span><i class="fas fa-shield-alt text-blue-500"></i> Warranty</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confetti Container -->
+    <div class="confetti-container" id="confettiContainer"></div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden">
+        <div class="flex items-center gap-3">
+            <i class="fas fa-check-circle text-green-500 text-xl"></i>
+            <p id="toastMessage" class="font-semibold text-[#0f172a]"></p>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 1;
+
+        function goToStep(step) {
+            document.querySelectorAll('.checkout-step').forEach(el => el.classList.remove('active'));
+            document.getElementById('step' + step).classList.add('active');
+
+            for (let i = 1; i <= 3; i++) {
+                const dot = document.getElementById('step' + i + 'Dot');
+                dot.classList.remove('active', 'completed');
+                if (i < step) dot.classList.add('completed');
+                if (i === step) dot.classList.add('active');
+            }
+            currentStep = step;
+            
+            // Scroll to top of form
+            document.querySelector('.glass-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function placeOrder() {
+            const btn = document.querySelector('#step2 .btn-primary');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+
+            const customerData = {
+                customer_name: document.getElementById('firstName').value + ' ' + document.getElementById('lastName').value,
+                customer_email: document.getElementById('email').value,
+                customer_phone: document.getElementById('phone').value,
+                customer_address: document.getElementById('address').value + ', ' + document.getElementById('city').value + ', ' + document.getElementById('country').value
+            };
+
+            fetch('/place-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(customerData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('orderId').textContent = data.order_id;
+                    goToStep(3);
+                    launchConfetti();
+                    showToast('Order placed successfully! 🎉');
+                } else {
+                    showToast('❌ ' + data.message);
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-lock"></i> Place Order';
+                }
+            })
+            .catch(() => {
+                showToast('❌ Something went wrong. Please try again.');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-lock"></i> Place Order';
+            });
+        }
+
+        function launchConfetti() {
+            const container = document.getElementById('confettiContainer');
+            const colors = ['#2563eb', '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#f43f5e', '#06b6d4'];
+
+            for (let i = 0; i < 120; i++) {
+                const piece = document.createElement('div');
+                piece.className = 'confetti-piece';
+                piece.style.left = Math.random() * 100 + '%';
+                piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+                piece.style.width = (Math.random() * 8 + 4) + 'px';
+                piece.style.height = (Math.random() * 8 + 4) + 'px';
+                piece.style.animationDuration = (Math.random() * 2 + 2) + 's';
+                piece.style.animationDelay = (Math.random() * 2) + 's';
+                container.appendChild(piece);
+                setTimeout(() => piece.remove(), 4000);
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toastMessage').textContent = message;
+            toast.classList.remove('hidden');
+            clearTimeout(window.toastTimeout);
+            window.toastTimeout = setTimeout(() => toast.classList.add('hidden'), 4000);
+        }
+
+        // Header scroll effect
+        window.addEventListener('scroll', () => {
+            document.getElementById('mainHeader').classList.toggle('scrolled', window.scrollY > 20);
+        });
+
+        // Keyboard support
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const toast = document.getElementById('toast');
+                if (!toast.classList.contains('hidden')) {
+                    toast.classList.add('hidden');
+                }
+            }
+        });
+    </script>
+</body>
+</html>
